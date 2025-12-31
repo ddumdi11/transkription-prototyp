@@ -1,0 +1,16 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Cache
+.mypy_cache/
+
+# Audio/Output (user data)
+input/
+output/
