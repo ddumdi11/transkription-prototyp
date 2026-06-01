@@ -119,6 +119,22 @@ def get_provider(provider: str, **opts) -> TranscriptionProvider:
     raise ValueError(f"Unbekannter Provider: {provider}")
 ```
 
+### 3.4a WICHTIG: `--model`-Semantik (Stolperfalle)
+
+`--model` bedeutet je nach Provider etwas anderes: bei OpenAI ein Modellname
+(`gpt-4o-mini-transcribe`), bei lokal eine Whisper-Größe (`small`, `medium`, …).
+Der aktuelle Default `gpt-4o-mini-transcribe` ist als Whisper-Größe **ungültig** —
+würde man ihn an `--provider local` durchreichen, bricht faster-whisper ab.
+
+**Lösung:** `--model` auf `default=None` setzen. Jeder Provider wählt seinen eigenen
+Default, wenn `model` None ist:
+
+- `OpenAIProvider`: None → `gpt-4o-mini-transcribe`
+- `LocalWhisperProvider`: None → `small`
+
+So bleibt ein einzelnes `--model`-Flag korrekt, ohne providerübergreifende Kollision.
+Die Hilfetexte entsprechend anpassen.
+
 ### 3.5 Anpassung `transcribe.py`
 
 - Neues CLI-Argument `--provider {openai,local}` (Default `openai`).

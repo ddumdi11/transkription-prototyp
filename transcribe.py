@@ -169,16 +169,21 @@ def main():
     parser.add_argument(
         "--provider",
         default="openai",
-        choices=["openai"],
-        help="Transkriptions-Engine. Standard: openai (Cloud).",
+        choices=["openai", "local"],
+        help=(
+            "Transkriptions-Engine. Standard: openai (Cloud, kostenpflichtig). "
+            "local = faster-whisper (lokal, kostenlos, ohne API-Key/Netz)."
+        ),
     )
     parser.add_argument(
         "--model",
-        default="gpt-4o-mini-transcribe",
+        default=None,
         help=(
-            "Transkriptionsmodell. Standard: gpt-4o-mini-transcribe "
-            "($0.003/Min, ~halber Preis von whisper-1 bei besserer Qualitaet). "
-            "Alternativen: gpt-4o-transcribe ($0.006/Min), whisper-1 ($0.006/Min)."
+            "Modell/Modellgröße. Bedeutung haengt vom Provider ab. "
+            "Ohne Angabe waehlt jeder Provider seinen Default: "
+            "openai -> gpt-4o-mini-transcribe ($0.003/Min; Alternativen: "
+            "gpt-4o-transcribe, whisper-1); "
+            "local -> small (Alternativen: tiny, base, medium, large-v3)."
         ),
     )
     parser.add_argument(
@@ -222,8 +227,13 @@ def main():
     input_path = Path(args.input).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
 
-    # Transkriptions-Engine wählen.
-    provider = get_provider(args.provider, model=args.model)
+    # Transkriptions-Engine wählen. Fehler hier (fehlender API-Key bei openai,
+    # nicht installiertes faster-whisper bei local) klar melden statt Traceback.
+    try:
+        provider = get_provider(args.provider, model=args.model)
+    except (RuntimeError, ValueError) as e:
+        print(f"[X] {e}")
+        raise SystemExit(1)
 
     audio_files = collect_audio_files(input_path)
     print(f"Gefundene Audio-Dateien: {len(audio_files)}")

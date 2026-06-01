@@ -1,0 +1,4 @@
+# Optionale Abhängigkeit für lokale Transkription (--provider local).
+# Reine Cloud-Nutzer brauchen das nicht zu installieren.
+#   pip install -r requirements-local.txt
+faster-whisper>=1.0.0

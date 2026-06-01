@@ -5,6 +5,7 @@ Starte mit:
     python gui.py
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -18,6 +19,24 @@ from dotenv import load_dotenv
 # .env laden für API-Key Check
 load_dotenv()
 
+# Einstellungen werden neben der App gespeichert, damit z. B. die
+# Engine-/Modell-Wahl nicht bei jedem Start zurückgesetzt wird.
+SETTINGS_FILE = Path(__file__).parent / "gui_settings.json"
+
+# Engine-Auswahl: Anzeigename -> interner Provider-Wert.
+ENGINE_LABELS = {
+    "OpenAI (Cloud, kostenpflichtig)": "openai",
+    "Lokal (faster-whisper, kostenlos)": "local",
+}
+ENGINE_VALUES = {v: k for k, v in ENGINE_LABELS.items()}
+
+# Modell-Auswahl je Engine (erster Eintrag = Default).
+MODELS_BY_PROVIDER = {
+    "openai": ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"],
+    "local": ["tiny", "base", "small", "medium", "large-v3"],
+}
+DEFAULT_MODEL_BY_PROVIDER = {"openai": "gpt-4o-mini-transcribe", "local": "small"}
+
 
 class TranscriptionGUI:
     def __init__(self, root: tk.Tk):
@@ -26,13 +45,27 @@ class TranscriptionGUI:
         self.root.geometry("700x600")
         self.root.minsize(600, 500)
 
+        # Gespeicherte Einstellungen laden (oder leeres Dict).
+        settings = self._load_settings()
+
         # Variablen für Optionen
-        self.input_folder = tk.StringVar(value="input")
-        self.output_folder = tk.StringVar(value="output")
-        self.prompt = tk.StringVar(value="Fachbegriffe: Diktiergerät, Claude, Claude Code, KI")
-        self.move_after_join = tk.BooleanVar(value=True)
+        self.input_folder = tk.StringVar(value=settings.get("input_folder", "input"))
+        self.output_folder = tk.StringVar(value=settings.get("output_folder", "output"))
+        self.prompt = tk.StringVar(value=settings.get(
+            "prompt", "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"))
+        self.move_after_join = tk.BooleanVar(value=settings.get("move_after_join", True))
         self.force_retranscribe = tk.BooleanVar(value=False)
-        self.no_replacements = tk.BooleanVar(value=False)
+        self.no_replacements = tk.BooleanVar(value=settings.get("no_replacements", False))
+
+        # Engine-/Modell-Wahl. Pro Engine wird die zuletzt gewählte Modellgröße
+        # gemerkt, damit ein Engine-Wechsel kein ungültiges Modell durchreicht.
+        provider = settings.get("provider", "openai")
+        if provider not in ENGINE_VALUES:
+            provider = "openai"
+        self.engine = tk.StringVar(value=ENGINE_VALUES[provider])
+        self._model_per_provider = dict(DEFAULT_MODEL_BY_PROVIDER)
+        self._model_per_provider.update(settings.get("model_per_provider", {}))
+        self.model = tk.StringVar(value=self._model_per_provider[provider])
 
         # Prozess-Tracking
         self.running_process = None
@@ -40,11 +73,69 @@ class TranscriptionGUI:
         self._create_widgets()
         self._check_api_key()
 
+        # Einstellungen beim Schließen sichern.
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
     def _check_api_key(self):
-        """Prüft ob der API-Key gesetzt ist."""
-        if not os.getenv("OPENAI_API_KEY"):
+        """Prüft ob der API-Key gesetzt ist (nur für die Cloud-Engine relevant)."""
+        if self._current_provider() == "openai" and not os.getenv("OPENAI_API_KEY"):
             self._log("⚠ WARNUNG: OPENAI_API_KEY ist nicht gesetzt!")
-            self._log("   Bitte in der .env-Datei eintragen.\n")
+            self._log("   Bitte in der .env-Datei eintragen (oder Engine 'Lokal' waehlen).\n")
+
+    def _current_provider(self) -> str:
+        """Interner Provider-Wert (openai/local) der aktuellen Engine-Wahl."""
+        return ENGINE_LABELS.get(self.engine.get(), "openai")
+
+    def _refresh_model_choices(self):
+        """Füllt das Modell-Dropdown passend zur gewählten Engine."""
+        provider = self._current_provider()
+        self.model_combo["values"] = MODELS_BY_PROVIDER[provider]
+        # Gemerkte Auswahl für diese Engine setzen.
+        self.model.set(self._model_per_provider.get(
+            provider, DEFAULT_MODEL_BY_PROVIDER[provider]))
+        if provider == "local":
+            self.engine_hint.config(text="kostenlos, laeuft lokal ohne API-Key/Netz")
+        else:
+            self.engine_hint.config(text="ca. $0.003/Min (gpt-4o-mini-transcribe)")
+
+    def _on_engine_change(self, event=None):
+        """Engine gewechselt -> Modell-Dropdown anpassen."""
+        self._refresh_model_choices()
+
+    def _on_model_change(self, event=None):
+        """Gewählte Modellgröße für die aktuelle Engine merken."""
+        self._model_per_provider[self._current_provider()] = self.model.get()
+
+    def _load_settings(self) -> dict:
+        """Lädt gespeicherte Einstellungen (leeres Dict bei Fehler/keine Datei)."""
+        try:
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _save_settings(self):
+        """Speichert die aktuellen Einstellungen neben der App."""
+        # Aktuelle Modellwahl in die Pro-Engine-Map übernehmen.
+        self._model_per_provider[self._current_provider()] = self.model.get()
+        data = {
+            "input_folder": self.input_folder.get(),
+            "output_folder": self.output_folder.get(),
+            "prompt": self.prompt.get(),
+            "move_after_join": self.move_after_join.get(),
+            "no_replacements": self.no_replacements.get(),
+            "provider": self._current_provider(),
+            "model_per_provider": self._model_per_provider,
+        }
+        try:
+            SETTINGS_FILE.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _on_close(self):
+        """Beim Schließen Einstellungen sichern und Fenster beenden."""
+        self._save_settings()
+        self.root.destroy()
 
     def _create_widgets(self):
         """Erstellt alle GUI-Elemente."""
@@ -122,6 +213,39 @@ class TranscriptionGUI:
             style="Primary.TButton"
         )
         self.workflow_btn.pack(fill=tk.X)
+
+        # === Engine (Transkription) ===
+        engine_frame = ttk.LabelFrame(main_frame, text="Engine (Transkription)", padding="10")
+        engine_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(engine_frame, text="Engine:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        self.engine_combo = ttk.Combobox(
+            engine_frame,
+            textvariable=self.engine,
+            values=list(ENGINE_LABELS.keys()),
+            state="readonly",
+            width=34,
+        )
+        self.engine_combo.grid(row=0, column=1, sticky=tk.EW)
+        self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine_change)
+
+        ttk.Label(engine_frame, text="Modell:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
+        self.model_combo = ttk.Combobox(
+            engine_frame,
+            textvariable=self.model,
+            state="readonly",
+            width=34,
+        )
+        self.model_combo.grid(row=1, column=1, sticky=tk.EW, pady=(5, 0))
+        self.model_combo.bind("<<ComboboxSelected>>", self._on_model_change)
+
+        self.engine_hint = ttk.Label(engine_frame, text="", foreground="gray")
+        self.engine_hint.grid(row=2, column=1, sticky=tk.W, pady=(5, 0))
+
+        engine_frame.columnconfigure(1, weight=1)
+
+        # Modell-Dropdown passend zur aktuellen Engine befüllen.
+        self._refresh_model_choices()
 
         # === Optionen ===
         options_frame = ttk.LabelFrame(main_frame, text="Optionen", padding="10")
@@ -274,7 +398,9 @@ class TranscriptionGUI:
         cmd = [
             sys.executable, "transcribe.py",
             str(input_path),
-            "--output-dir", self.output_folder.get()
+            "--output-dir", self.output_folder.get(),
+            "--provider", self._current_provider(),
+            "--model", self.model.get(),
         ]
 
         if self.prompt.get().strip():

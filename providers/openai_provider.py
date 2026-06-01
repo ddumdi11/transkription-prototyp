@@ -19,7 +19,7 @@ class OpenAIProvider(TranscriptionProvider):
 
     name = "openai"
 
-    def __init__(self, model: str = DEFAULT_MODEL):
+    def __init__(self, model: str | None = None):
         # .env laden (für OPENAI_API_KEY)
         load_dotenv()
         api_key = os.getenv("OPENAI_API_KEY")
@@ -29,7 +29,8 @@ class OpenAIProvider(TranscriptionProvider):
                 "Bitte in der .env-Datei oder als Umgebungsvariable hinterlegen."
             )
 
-        self.model = model
+        # model=None -> Provider-eigener Default (siehe Plan §3.4a).
+        self.model = model or DEFAULT_MODEL
         self._client = OpenAI(api_key=api_key)
 
     @property
