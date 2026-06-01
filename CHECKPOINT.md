@@ -18,6 +18,30 @@
   Hinweis: Lokale Transkription = `faster-whisper`, **nicht** Ollama/LM Studio
   (das sind LLM-Server ohne saubere ASR; nur als optionaler Korrekturschritt vorgesehen).
 
+## Update 01.06.2026 – Provider-Abstraktion, lokale Engine & LLM-Korrektur
+
+Umgesetzt durch Claude Code (Kurt), in getrennten Commits:
+
+- ✅ **Provider-Abstraktion** (`providers/`): Transkriptions-Engine austauschbar
+  (Commit `6dfd947`). `--provider {openai,local}`; `--model=None` → jeder Provider
+  wählt seinen Default (openai: `gpt-4o-mini-transcribe`, local: `small`).
+- ✅ **Lokale Engine** `faster-whisper` (`providers/local_provider.py`, Commit
+  `66ee3e4`): kostenlos, offline, kein 25-MB-Splitting; optionale Abhängigkeit
+  (`requirements-local.txt`), defensiver Import. GUI mit Engine-/Modell-Dropdown,
+  Einstellungen in `gui_settings.json`.
+  - Qualität (echter Lauf): `small` für dt. Diktat brauchbar, aber nicht fehlerfrei;
+    `medium`/`large-v3` genauer; höchste Genauigkeit über Cloud `gpt-4o-transcribe`.
+- ✅ **Optionale LLM-Korrektur** (`correction/`, Commit `dd22d5b` + Chunking/GUI/Doku):
+  Nachkorrektur über lokales Ollama/LM Studio (OpenAI-kompatibel, keine neue
+  Abhängigkeit). `--correct`/`--correct-backend`/`--correct-model`/`--correct-base-url`,
+  `.env` `CORRECTION_*` mit CLI-Vorrang. **Default aus.** Defensiv: jeder Fehler →
+  unkorrigiertes Transkript behalten; Längen-Schutz (< 50 %); Chunking langer Texte
+  an Absatz-/Satzgrenzen (~6 000 Zeichen). GUI-Checkbox + Backend/Modell + Persistenz.
+- 📋 Pläne: `docs/IMPLEMENTATION_PLAN.md` (Provider, abgeschlossen),
+  `docs/LLM_CORRECTION_PLAN.md` (Korrektur), `docs/ASR_QUALITY_SPIKE.md`
+  (Mess-Protokoll für den eigentlichen Qualitätshebel; audio-nativer Gemma/llama.cpp-
+  Pfad bewusst geparkt).
+
 ## Aktueller Stand
 
 Das Projekt ist **funktionsfähig und produktionsbereit**. Alle Kernfunktionen sind implementiert und getestet.

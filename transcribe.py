@@ -6,7 +6,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from correction import BACKEND_DEFAULTS, Corrector, build_corrector
+from correction import (
+    BACKEND_DEFAULTS,
+    DEFAULT_CHUNK_THRESHOLD,
+    Corrector,
+    build_corrector,
+    split_into_chunks,
+)
 from providers import TranscriptionProvider, get_provider
 
 # Untergrenze für die LLM-Antwortlänge relativ zum Original (Plan §6):
@@ -44,31 +50,55 @@ def apply_replacements(text: str, replacements: dict[str, str]) -> str:
     return result
 
 
-def correct_text(corrector: Corrector, text: str) -> str:
+def _correct_chunk(corrector: Corrector, chunk: str, label: str) -> str:
     """
-    Wendet die optionale LLM-Korrektur defensiv an (Plan §6).
+    Korrigiert einen einzelnen Abschnitt defensiv (Plan §6).
 
     Bei JEDEM Fehler (Server aus, Timeout, Modell fehlt, leere/zu kurze
-    Antwort) wird das unkorrigierte Original zurückgegeben — ein Transkript
-    darf nie verloren gehen.
+    Antwort) wird der unkorrigierte Abschnitt zurückgegeben — Inhalt darf
+    nie verloren gehen.
     """
-    original = text
     try:
-        corrected = corrector.correct(text)
+        corrected = corrector.correct(chunk)
     except Exception as e:
-        print(f"   [!] LLM-Korrektur fehlgeschlagen ({e}); "
-              f"speichere unkorrigiertes Transkript.")
-        return original
+        print(f"   [!] LLM-Korrektur fehlgeschlagen{label} ({e}); "
+              f"behalte unkorrigierten Abschnitt.")
+        return chunk
 
     # Schutz gegen "verschluckten" Inhalt (z. B. faelschliche Zusammenfassung).
-    if len(corrected.strip()) < CORRECTION_MIN_LENGTH_RATIO * len(original.strip()):
-        print(f"   [!] LLM-Antwort verdaechtig kurz "
-              f"({len(corrected.strip())} statt {len(original.strip())} Zeichen); "
-              f"behalte unkorrigiertes Transkript.")
-        return original
+    if len(corrected.strip()) < CORRECTION_MIN_LENGTH_RATIO * len(chunk.strip()):
+        print(f"   [!] LLM-Antwort verdaechtig kurz{label} "
+              f"({len(corrected.strip())} statt {len(chunk.strip())} Zeichen); "
+              f"behalte unkorrigierten Abschnitt.")
+        return chunk
 
-    print("   [OK] LLM-Korrektur angewendet.")
-    return corrected
+    return corrected.strip()
+
+
+def correct_text(corrector: Corrector, text: str) -> str:
+    """
+    Wendet die optionale LLM-Korrektur an (Plan §6 + §7).
+
+    Lange Transkripte werden an Absatz-/Satzgrenzen in Abschnitte zerlegt,
+    einzeln korrigiert und wieder zusammengefügt. Jeder Abschnitt ist defensiv
+    gekapselt: ein Fehler verliert nur die Korrektur dieses Abschnitts, nie
+    den Inhalt — und nie das ganze Transkript.
+    """
+    chunks = split_into_chunks(text)
+    multi = len(chunks) > 1
+    if multi:
+        print(f"   [i] Langer Text ({len(text)} Zeichen) -> "
+              f"Korrektur in {len(chunks)} Abschnitten.")
+
+    parts = []
+    for idx, chunk in enumerate(chunks, 1):
+        label = f" (Abschnitt {idx}/{len(chunks)})" if multi else ""
+        parts.append(_correct_chunk(corrector, chunk, label))
+
+    result = "\n\n".join(p.strip() for p in parts).strip()
+    print(f"   [OK] LLM-Korrektur angewendet"
+          f"{f' ({len(chunks)} Abschnitte)' if multi else ''}.")
+    return result
 
 
 def is_audio_file(path: Path) -> bool:

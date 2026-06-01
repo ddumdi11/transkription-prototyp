@@ -37,6 +37,10 @@ MODELS_BY_PROVIDER = {
 }
 DEFAULT_MODEL_BY_PROVIDER = {"openai": "gpt-4o-mini-transcribe", "local": "small"}
 
+# LLM-Korrektur: Backend-Anzeigename -> interner Wert (siehe transcribe.py).
+CORRECTION_BACKEND_LABELS = {"Ollama": "ollama", "LM Studio": "lmstudio"}
+CORRECTION_BACKEND_VALUES = {v: k for k, v in CORRECTION_BACKEND_LABELS.items()}
+
 
 class TranscriptionGUI:
     def __init__(self, root: tk.Tk):
@@ -66,6 +70,14 @@ class TranscriptionGUI:
         self._model_per_provider = dict(DEFAULT_MODEL_BY_PROVIDER)
         self._model_per_provider.update(settings.get("model_per_provider", {}))
         self.model = tk.StringVar(value=self._model_per_provider[provider])
+
+        # Optionale LLM-Korrektur (lokal, abschaltbar).
+        self.correct_enabled = tk.BooleanVar(value=settings.get("correct_enabled", False))
+        corr_backend = settings.get("correct_backend", "ollama")
+        if corr_backend not in CORRECTION_BACKEND_VALUES:
+            corr_backend = "ollama"
+        self.correct_backend = tk.StringVar(value=CORRECTION_BACKEND_VALUES[corr_backend])
+        self.correct_model = tk.StringVar(value=settings.get("correct_model", ""))
 
         # Prozess-Tracking
         self.running_process = None
@@ -106,6 +118,18 @@ class TranscriptionGUI:
         """Gewählte Modellgröße für die aktuelle Engine merken."""
         self._model_per_provider[self._current_provider()] = self.model.get()
 
+    def _current_correct_backend(self) -> str:
+        """Interner Backend-Wert (ollama/lmstudio) der Korrektur-Wahl."""
+        return CORRECTION_BACKEND_LABELS.get(self.correct_backend.get(), "ollama")
+
+    def _on_correct_toggle(self):
+        """Backend-/Modell-Felder je nach Korrektur-Checkbox aktivieren."""
+        state = tk.NORMAL if self.correct_enabled.get() else tk.DISABLED
+        # Combobox bleibt readonly, wenn aktiv; sonst disabled.
+        self.correct_backend_combo.config(
+            state="readonly" if self.correct_enabled.get() else tk.DISABLED)
+        self.correct_model_entry.config(state=state)
+
     def _load_settings(self) -> dict:
         """Lädt gespeicherte Einstellungen (leeres Dict bei Fehler/keine Datei)."""
         try:
@@ -125,6 +149,9 @@ class TranscriptionGUI:
             "no_replacements": self.no_replacements.get(),
             "provider": self._current_provider(),
             "model_per_provider": self._model_per_provider,
+            "correct_enabled": self.correct_enabled.get(),
+            "correct_backend": self._current_correct_backend(),
+            "correct_model": self.correct_model.get(),
         }
         try:
             SETTINGS_FILE.write_text(
@@ -262,6 +289,41 @@ class TranscriptionGUI:
             text="Automatische Ersetzungen deaktivieren",
             variable=self.no_replacements
         ).pack(anchor=tk.W)
+
+        # === LLM-Korrektur (lokal) ===
+        correct_frame = ttk.LabelFrame(main_frame, text="LLM-Korrektur (lokal, optional)", padding="10")
+        correct_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Checkbutton(
+            correct_frame,
+            text="LLM-Korrektur aktivieren (benötigt laufendes Ollama/LM Studio)",
+            variable=self.correct_enabled,
+            command=self._on_correct_toggle,
+        ).grid(row=0, column=0, columnspan=2, sticky=tk.W)
+
+        ttk.Label(correct_frame, text="Backend:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
+        self.correct_backend_combo = ttk.Combobox(
+            correct_frame,
+            textvariable=self.correct_backend,
+            values=list(CORRECTION_BACKEND_LABELS.keys()),
+            state="readonly",
+            width=20,
+        )
+        self.correct_backend_combo.grid(row=1, column=1, sticky=tk.W, pady=(5, 0))
+
+        ttk.Label(correct_frame, text="Modell:").grid(row=2, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
+        self.correct_model_entry = ttk.Entry(correct_frame, textvariable=self.correct_model)
+        self.correct_model_entry.grid(row=2, column=1, sticky=tk.EW, pady=(5, 0))
+        ttk.Label(
+            correct_frame,
+            text="z. B. llama3.1:8b (Ollama) — ein geladenes Modell angeben",
+            foreground="gray",
+        ).grid(row=3, column=1, sticky=tk.W, pady=(2, 0))
+
+        correct_frame.columnconfigure(1, weight=1)
+
+        # Korrektur-Felder passend zum Checkbox-Status aktivieren/deaktivieren.
+        self._on_correct_toggle()
 
         # === Log-Ausgabe ===
         log_frame = ttk.LabelFrame(main_frame, text="Ausgabe", padding="10")
@@ -411,6 +473,22 @@ class TranscriptionGUI:
 
         if self.no_replacements.get():
             cmd.append("--no-replacements")
+
+        if self.correct_enabled.get():
+            model = self.correct_model.get().strip()
+            if not model:
+                messagebox.showwarning(
+                    "LLM-Korrektur",
+                    "Für die LLM-Korrektur muss ein Modellname angegeben werden "
+                    "(z. B. llama3.1:8b).\nBitte eintragen oder die Korrektur "
+                    "deaktivieren.",
+                )
+                return
+            cmd.extend([
+                "--correct",
+                "--correct-backend", self._current_correct_backend(),
+                "--correct-model", model,
+            ])
 
         self._run_command(cmd, "Transkription")
 
