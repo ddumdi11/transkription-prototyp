@@ -1,9 +1,17 @@
 import argparse
+import os
 import subprocess
 import tempfile
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+from correction import BACKEND_DEFAULTS, Corrector, build_corrector
 from providers import TranscriptionProvider, get_provider
+
+# Untergrenze für die LLM-Antwortlänge relativ zum Original (Plan §6):
+# kürzere Antworten gelten als "verschluckter" Inhalt -> Original behalten.
+CORRECTION_MIN_LENGTH_RATIO = 0.5
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".webm"}
 
@@ -34,6 +42,33 @@ def apply_replacements(text: str, replacements: dict[str, str]) -> str:
         result = result.replace(wrong, correct)
 
     return result
+
+
+def correct_text(corrector: Corrector, text: str) -> str:
+    """
+    Wendet die optionale LLM-Korrektur defensiv an (Plan §6).
+
+    Bei JEDEM Fehler (Server aus, Timeout, Modell fehlt, leere/zu kurze
+    Antwort) wird das unkorrigierte Original zurückgegeben — ein Transkript
+    darf nie verloren gehen.
+    """
+    original = text
+    try:
+        corrected = corrector.correct(text)
+    except Exception as e:
+        print(f"   [!] LLM-Korrektur fehlgeschlagen ({e}); "
+              f"speichere unkorrigiertes Transkript.")
+        return original
+
+    # Schutz gegen "verschluckten" Inhalt (z. B. faelschliche Zusammenfassung).
+    if len(corrected.strip()) < CORRECTION_MIN_LENGTH_RATIO * len(original.strip()):
+        print(f"   [!] LLM-Antwort verdaechtig kurz "
+              f"({len(corrected.strip())} statt {len(original.strip())} Zeichen); "
+              f"behalte unkorrigiertes Transkript.")
+        return original
+
+    print("   [OK] LLM-Korrektur angewendet.")
+    return corrected
 
 
 def is_audio_file(path: Path) -> bool:
@@ -217,12 +252,48 @@ def main():
         help="Standard-Ersetzungen deaktivieren.",
     )
     parser.add_argument(
+        "--correct",
+        action="store_true",
+        help=(
+            "Optionale LLM-Nachkorrektur ueber ein lokales, OpenAI-kompatibles "
+            "Backend (Ollama/LM Studio) aktivieren. Standard: aus."
+        ),
+    )
+    parser.add_argument(
+        "--correct-backend",
+        choices=["ollama", "lmstudio"],
+        default=None,
+        help=(
+            "Backend fuer die LLM-Korrektur (setzt die Default-URL). "
+            "Standard: ollama bzw. CORRECTION_BACKEND aus .env."
+        ),
+    )
+    parser.add_argument(
+        "--correct-model",
+        default=None,
+        help=(
+            "Modellname fuer die LLM-Korrektur (Pflicht bei --correct; "
+            "kein universeller Default). Alternativ CORRECTION_MODEL in .env."
+        ),
+    )
+    parser.add_argument(
+        "--correct-base-url",
+        default=None,
+        help=(
+            "Ueberschreibt die Backend-Default-URL (abweichende Ports/Hosts). "
+            "Alternativ CORRECTION_BASE_URL in .env."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Bereits transkribierte Dateien erneut verarbeiten.",
     )
 
     args = parser.parse_args()
+
+    # .env laden (für CORRECTION_*; OpenAIProvider lädt zusätzlich selbst).
+    load_dotenv()
 
     input_path = Path(args.input).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
@@ -234,6 +305,22 @@ def main():
     except (RuntimeError, ValueError) as e:
         print(f"[X] {e}")
         raise SystemExit(1)
+
+    # Optionale LLM-Korrektur vorbereiten (Default: aus). CLI hat Vorrang vor .env.
+    corrector = None
+    if args.correct:
+        backend = args.correct_backend or os.getenv("CORRECTION_BACKEND") or "ollama"
+        model = args.correct_model or os.getenv("CORRECTION_MODEL")
+        base_url = args.correct_base_url or os.getenv("CORRECTION_BASE_URL")
+        try:
+            corrector = build_corrector(backend, model, base_url)
+        except (ValueError, RuntimeError) as e:
+            print(f"[X] {e}")
+            raise SystemExit(1)
+        print(
+            f"LLM-Korrektur aktiv: backend={backend}, model={model}, "
+            f"url={base_url or BACKEND_DEFAULTS.get(backend)}"
+        )
 
     audio_files = collect_audio_files(input_path)
     print(f"Gefundene Audio-Dateien: {len(audio_files)}")
@@ -294,6 +381,10 @@ def main():
 
             # Post-Processing: Ersetzungen anwenden
             text = apply_replacements(text, replacements)
+
+            # Optionale LLM-Nachkorrektur (defensiv: Fehler -> Original behalten).
+            if corrector is not None:
+                text = correct_text(corrector, text)
 
             # Speichern
             write_transcript(
