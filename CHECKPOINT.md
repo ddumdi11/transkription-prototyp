@@ -1,7 +1,22 @@
 # Projekt-Checkpoint
 
-**Datum:** 19. Dezember 2024 (ursprünglich: 7. Dezember 2024)
+**Datum:** 1. Juni 2026 (ursprünglich: 7. Dezember 2024)
 **Projekt:** Transkriptions-Prototyp (Diktiergerät → Text)
+
+## Update 01.06.2026 – Kostenoptimierung & Architektur
+
+- ✅ **Default-Modell gewechselt:** `whisper-1` → `gpt-4o-mini-transcribe`
+  (halber Preis: $0.003 statt $0.006/Min, bessere Qualität, voll kompatibel).
+  `whisper-1` und `gpt-4o-transcribe` bleiben über `--model` wählbar.
+- ✅ **`.gitattributes`** hinzugefügt: normalisiert Zeilenenden (LF im Repo) und
+  beseitigt das CRLF↔LF-Diff-Rauschen.
+- ✅ **README** um Abschnitt „Kosten & Modellwahl" ergänzt.
+- ✅ **Landing Page** (`docs/index.html`) – GitHub-Pages-fähig aus `/docs`.
+- 📋 **Implementierungs-Plan** (`docs/IMPLEMENTATION_PLAN.md`) für die nächste
+  Iteration: Provider-Abstraktion (OpenAI + **lokal via faster-whisper**),
+  GUI-Modellauswahl. Umsetzung durch Claude Code (Kurt).
+  Hinweis: Lokale Transkription = `faster-whisper`, **nicht** Ollama/LM Studio
+  (das sind LLM-Server ohne saubere ASR; nur als optionaler Korrekturschritt vorgesehen).
 
 ## Aktueller Stand
 

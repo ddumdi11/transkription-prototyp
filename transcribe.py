@@ -192,8 +192,12 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default="whisper-1",
-        help="Transkriptionsmodell (Standard: whisper-1).",
+        default="gpt-4o-mini-transcribe",
+        help=(
+            "Transkriptionsmodell. Standard: gpt-4o-mini-transcribe "
+            "($0.003/Min, ~halber Preis von whisper-1 bei besserer Qualitaet). "
+            "Alternativen: gpt-4o-transcribe ($0.006/Min), whisper-1 ($0.006/Min)."
+        ),
     )
     parser.add_argument(
         "--language",

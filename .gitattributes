@@ -1,0 +1,19 @@
+# Zeilenenden normalisieren: im Repo immer LF, beim Auschecken
+# OS-abhaengig. Verhindert "Scheinaenderungen" (CRLF<->LF) im Diff.
+* text=auto eol=lf
+
+# Windows-spezifische Skripte behalten CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binaerdateien nie anfassen
+*.mp3 binary
+*.wav binary
+*.m4a binary
+*.flac binary
+*.ogg binary
+*.webm binary
+*.png binary
+*.jpg binary
+*.ico binary

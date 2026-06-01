@@ -3,6 +3,21 @@
 Dieses kleine Projekt transkribiert Audiodateien (z. B. vom Diktiergerät) über die OpenAI-API.
 Die Sprache ist standardmäßig **Deutsch** und die Transkripte werden als **Markdown (.md)** gespeichert.
 
+## Kosten & Modellwahl
+
+Die OpenAI-Transkription wird pro Audiominute abgerechnet (Prepaid-Guthaben – es kann keine
+unerwartete Rechnung entstehen). Seit Juni 2026 ist das günstigste Modell der Standard:
+
+| Modell | Preis/Min | Hinweis |
+|--------|-----------|---------|
+| `gpt-4o-mini-transcribe` | $0.003 | **Standard** – halber Preis von whisper-1, bessere Qualität |
+| `gpt-4o-transcribe` | $0.006 | höchste Qualität |
+| `whisper-1` | $0.006 | Legacy |
+
+Mit `--model` lässt sich das Modell frei wählen. Eine **kostenlose lokale Variante**
+(`faster-whisper`, läuft offline auf dem eigenen Rechner) ist in Vorbereitung – siehe
+`docs/IMPLEMENTATION_PLAN.md`.
+
 ## Vorbereitung
 
 1. Python 3.10+ installieren.
@@ -148,7 +163,7 @@ Die fertigen Transkripte findest du in `output/` als `.md`-Dateien.
 
 | Option | Beschreibung |
 |--------|--------------|
-| `--model` | Modell ändern (Standard: `whisper-1`) |
+| `--model` | Modell ändern (Standard: `gpt-4o-mini-transcribe`) |
 | `--language` | Sprachcode (Standard: `de`) |
 | `--output-dir` | Ausgabeordner (Standard: `output`) |
 | `--suffix` | Dateiendung (Standard: `.md`) |
