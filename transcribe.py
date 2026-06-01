@@ -1,27 +1,14 @@
-import os
 import argparse
 import subprocess
 import tempfile
 from pathlib import Path
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-# .env laden (für OPENAI_API_KEY)
-load_dotenv()
-
-API_KEY = os.getenv("OPENAI_API_KEY")
-if not API_KEY:
-    raise RuntimeError(
-        "OPENAI_API_KEY ist nicht gesetzt. "
-        "Bitte in der .env-Datei oder als Umgebungsvariable hinterlegen."
-    )
-
-client = OpenAI(api_key=API_KEY)
+from providers import TranscriptionProvider, get_provider
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".webm"}
 
-# Whisper API Limit: 25 MB
+# Whisper API Limit: 25 MB (Fallback für split_audio_file, wenn kein
+# Provider-Limit übergeben wird).
 MAX_FILE_SIZE_MB = 25
 
 # Standard-Ersetzungen für häufige Erkennungsfehler
@@ -112,24 +99,13 @@ def split_audio_file(audio_path: Path, max_size_mb: float = MAX_FILE_SIZE_MB) ->
     return parts
 
 
-def transcribe_file(audio_path: Path, model: str, language: str, prompt: str = None) -> str:
+def transcribe_file(audio_path: Path, provider: TranscriptionProvider,
+                    language: str, prompt: str = None) -> str:
     """
     Vollständige Transkription (ohne Zeitmarken) als reinen Text zurückgeben.
     """
     print(f"-> Transkribiere: {audio_path.name} ...")
-
-    with audio_path.open("rb") as f:
-        kwargs = {
-            "model": model,
-            "file": f,
-            "language": language,
-        }
-        if prompt:
-            kwargs["prompt"] = prompt
-
-        result = client.audio.transcriptions.create(**kwargs)
-
-    return result.text
+    return provider.transcribe(audio_path, language=language, prompt=prompt)
 
 
 def write_transcript(
@@ -191,6 +167,12 @@ def main():
         help="Audiodatei oder Ordner mit Audiodateien (z. B. 'input')",
     )
     parser.add_argument(
+        "--provider",
+        default="openai",
+        choices=["openai"],
+        help="Transkriptions-Engine. Standard: openai (Cloud).",
+    )
+    parser.add_argument(
         "--model",
         default="gpt-4o-mini-transcribe",
         help=(
@@ -240,6 +222,9 @@ def main():
     input_path = Path(args.input).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
 
+    # Transkriptions-Engine wählen.
+    provider = get_provider(args.provider, model=args.model)
+
     audio_files = collect_audio_files(input_path)
     print(f"Gefundene Audio-Dateien: {len(audio_files)}")
 
@@ -259,17 +244,20 @@ def main():
                 skipped += 1
                 continue
 
-            # Prüfen ob Datei zu groß ist und ggf. splitten
+            # Prüfen ob Datei zu groß ist und ggf. splitten.
+            # Splitting nur, wenn der Provider ein Größenlimit hat
+            # (lokale Engines haben keins -> kein Splitting nötig).
+            size_limit = provider.max_file_size_mb
             file_size_mb = get_file_size_mb(audio)
-            if file_size_mb > MAX_FILE_SIZE_MB:
+            if size_limit and file_size_mb > size_limit:
                 # Datei aufteilen und alle Teile transkribieren
-                parts = split_audio_file(audio)
+                parts = split_audio_file(audio, max_size_mb=size_limit)
                 all_texts = []
 
                 for part in parts:
                     text = transcribe_file(
                         part,
-                        model=args.model,
+                        provider=provider,
                         language=args.language,
                         prompt=args.prompt,
                     )
@@ -289,7 +277,7 @@ def main():
                 # Normale Transkription
                 text = transcribe_file(
                     audio,
-                    model=args.model,
+                    provider=provider,
                     language=args.language,
                     prompt=args.prompt,
                 )
