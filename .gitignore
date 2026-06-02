@@ -17,3 +17,8 @@ gui_settings.json
 # Audio/Output (user data)
 input/
 output/
+
+# Eval (Clips & generierte Gegenüberstellungen)
+eval/clips/
+eval/out/
+test/
