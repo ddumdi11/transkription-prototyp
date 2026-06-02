@@ -21,3 +21,12 @@ class TranscriptionProvider(ABC):
     @abstractmethod
     def max_file_size_mb(self) -> float | None:
         """Größenlimit pro Datei; None = kein Limit (z. B. lokal)."""
+
+    @property
+    @abstractmethod
+    def max_duration_seconds(self) -> float | None:
+        """Dauergrenze pro Anfrage in Sekunden; None = kein Limit.
+
+        Die gpt-4o-Transcribe-Modelle akzeptieren nur ~1400 s pro Anfrage
+        (whisper-1 dagegen nur das Größenlimit). Wird zusätzlich zu
+        max_file_size_mb fürs Splitting herangezogen."""

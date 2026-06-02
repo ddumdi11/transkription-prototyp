@@ -48,6 +48,10 @@ class LocalWhisperProvider(TranscriptionProvider):
     def max_file_size_mb(self) -> float | None:
         return None  # kein 25-MB-Limit -> Splitting für lokal nicht nötig
 
+    @property
+    def max_duration_seconds(self) -> float | None:
+        return None  # faster-whisper verarbeitet beliebig lange Dateien am Stück
+
     def transcribe(self, audio_path: Path, language: str,
                    prompt: str | None = None) -> str:
         segments, _ = self._model.transcribe(

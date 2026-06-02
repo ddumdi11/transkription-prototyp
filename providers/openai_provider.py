@@ -13,6 +13,10 @@ DEFAULT_MODEL = "gpt-4o-mini-transcribe"
 # Whisper API Limit: 25 MB
 MAX_FILE_SIZE_MB = 25
 
+# Dauergrenze der gpt-4o-Transcribe-Modelle: ~1400 s pro Anfrage. Mit
+# Sicherheitspuffer auf 1200 s gesetzt. whisper-1 hat keine Dauergrenze.
+GPT4O_MAX_DURATION_SECONDS = 1200
+
 
 class OpenAIProvider(TranscriptionProvider):
     """Transkription über die OpenAI-API (client.audio.transcriptions.create)."""
@@ -36,6 +40,14 @@ class OpenAIProvider(TranscriptionProvider):
     @property
     def max_file_size_mb(self) -> float | None:
         return MAX_FILE_SIZE_MB
+
+    @property
+    def max_duration_seconds(self) -> float | None:
+        # whisper-1 kennt nur das Größenlimit; die gpt-4o-Modelle haben
+        # zusätzlich eine Dauergrenze pro Anfrage.
+        if self.model == "whisper-1":
+            return None
+        return GPT4O_MAX_DURATION_SECONDS
 
     def transcribe(self, audio_path: Path, language: str,
                    prompt: str | None = None) -> str:

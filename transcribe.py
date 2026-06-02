@@ -2,6 +2,7 @@ import argparse
 import os
 import subprocess
 import tempfile
+from math import ceil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -116,29 +117,43 @@ def transcript_exists(audio_path: Path, output_dir: Path, suffix: str) -> bool:
     return transcript_path.exists()
 
 
-def split_audio_file(audio_path: Path, max_size_mb: float = MAX_FILE_SIZE_MB) -> list[Path]:
-    """
-    Teilt eine zu große Audio-Datei in kleinere Teile.
-    Gibt eine Liste der Teil-Dateien zurück.
-    """
-    file_size_mb = get_file_size_mb(audio_path)
-
-    if file_size_mb <= max_size_mb:
-        return [audio_path]
-
-    # Berechne wie viele Teile wir brauchen
-    num_parts = int(file_size_mb / max_size_mb) + 1
-
-    # Hole die Dauer der Audio-Datei
+def get_audio_duration(path: Path) -> float:
+    """Gibt die Audiodauer in Sekunden zurück (via ffprobe)."""
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
         capture_output=True, text=True
     )
-    total_duration = float(result.stdout.strip())
-    segment_duration = total_duration / num_parts
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 0.0
 
-    print(f"   [SPLIT] Datei zu gross ({file_size_mb:.1f} MB), teile in {num_parts} Teile...")
+
+def split_audio_file(audio_path: Path, max_size_mb: float | None = MAX_FILE_SIZE_MB,
+                     max_duration_seconds: float | None = None) -> list[Path]:
+    """
+    Teilt eine zu große/zu lange Audio-Datei in kleinere Teile.
+
+    Die Teilezahl ergibt sich aus der *bindenden* Grenze (Größe ODER Dauer):
+    die gpt-4o-Transcribe-Modelle haben eine Dauergrenze (~1400 s), die bei den
+    üblichen Bitraten lange vor dem 25-MB-Größenlimit greift. Gibt eine Liste
+    der Teil-Dateien zurück (bzw. [audio_path], wenn kein Split nötig ist).
+    """
+    file_size_mb = get_file_size_mb(audio_path)
+    total_duration = get_audio_duration(audio_path)
+
+    parts_by_size = ceil(file_size_mb / max_size_mb) if max_size_mb else 1
+    parts_by_dur = ceil(total_duration / max_duration_seconds) if max_duration_seconds else 1
+    num_parts = max(parts_by_size, parts_by_dur, 1)
+
+    if num_parts <= 1:
+        return [audio_path]
+
+    segment_duration = total_duration / num_parts
+    grund = "Dauer" if parts_by_dur >= parts_by_size else "Groesse"
+    print(f"   [SPLIT] Teile Datei in {num_parts} Teile "
+          f"(bindend: {grund}; {file_size_mb:.1f} MB, {total_duration:.0f} s)...")
 
     # Erstelle temporäres Verzeichnis für die Teile
     temp_dir = Path(tempfile.mkdtemp(prefix="transcribe_split_"))
@@ -148,18 +163,23 @@ def split_audio_file(audio_path: Path, max_size_mb: float = MAX_FILE_SIZE_MB) ->
         start_time = i * segment_duration
         part_path = temp_dir / f"{audio_path.stem}_{i+1:02d}{audio_path.suffix}"
 
+        # Re-Encode (kein -c copy): vermeidet falsche Dauer-Metadata durch
+        # mitkopierte VBR-Header (Xing/Info); jede Teildatei meldet ihre echte
+        # Dauer. ffmpeg waehlt den Encoder anhand der Dateiendung.
         cmd = [
             "ffmpeg", "-y",
-            "-i", str(audio_path),
             "-ss", str(start_time),
             "-t", str(segment_duration),
-            "-c", "copy",
+            "-i", str(audio_path),
+            "-map", "0:a",
+            "-reset_timestamps", "1",
             str(part_path)
         ]
 
         subprocess.run(cmd, capture_output=True, text=True)
+        part_dur = get_audio_duration(part_path)
         parts.append(part_path)
-        print(f"      Teil {i+1}/{num_parts}: {part_path.name}")
+        print(f"      Teil {i+1}/{num_parts}: {part_path.name} ({part_dur:.0f} s)")
 
     return parts
 
@@ -371,14 +391,18 @@ def main():
                 skipped += 1
                 continue
 
-            # Prüfen ob Datei zu groß ist und ggf. splitten.
-            # Splitting nur, wenn der Provider ein Größenlimit hat
-            # (lokale Engines haben keins -> kein Splitting nötig).
+            # Prüfen ob Datei zu groß ODER zu lang ist und ggf. splitten.
+            # Splitting nur, wenn der Provider überhaupt eine Grenze hat
+            # (lokale Engines haben keine -> kein Splitting nötig).
             size_limit = provider.max_file_size_mb
+            dur_limit = provider.max_duration_seconds
             file_size_mb = get_file_size_mb(audio)
-            if size_limit and file_size_mb > size_limit:
+            over_size = bool(size_limit) and file_size_mb > size_limit
+            over_dur = bool(dur_limit) and get_audio_duration(audio) > dur_limit
+            if over_size or over_dur:
                 # Datei aufteilen und alle Teile transkribieren
-                parts = split_audio_file(audio, max_size_mb=size_limit)
+                parts = split_audio_file(
+                    audio, max_size_mb=size_limit, max_duration_seconds=dur_limit)
                 all_texts = []
 
                 for part in parts:
