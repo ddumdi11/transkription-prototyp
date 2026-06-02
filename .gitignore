@@ -18,7 +18,8 @@ gui_settings.json
 input/
 output/
 
-# Eval (Clips & generierte Gegenüberstellungen)
+# Eval & private Mess-Daten (keine committeten Tests hier; nur Clips,
+# Referenztexte und generierte Gegenüberstellungen).
 eval/clips/
 eval/out/
 test/

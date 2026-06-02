@@ -108,14 +108,16 @@ Das Projekt ist **funktionsfähig und produktionsbereit**. Alle Kernfunktionen s
   - Standard: Dateien mit vorhandenem Transkript werden übersprungen
   - `--force`: Alle Dateien neu transkribieren
 
-- ✅ **Automatisches Aufteilen großer Dateien**
-  - Dateien >25MB (Whisper API Limit) werden automatisch geteilt
-  - Teile werden einzeln transkribiert und zusammengefügt
-  - Temporäre Dateien werden automatisch aufgeräumt
+- ✅ **Automatisches Aufteilen großer/langer Dateien** (provider-/modellabhängig)
+  - `whisper-1`: nur 25-MB-Größenlimit der API
+  - `gpt-4o-(mini-)transcribe`: zusätzlich Dauerlimit ~23 Min/Anfrage → Dauer-Split
+  - lokal (`faster-whisper`): kein Größen-/Dauerlimit → kein Split
+  - Teile werden einzeln transkribiert und zusammengefügt; temporäre Dateien aufgeräumt
 
 ### CLI-Optionen (transcribe.py)
 
-- `--model`: Modell auswählen (Standard: `whisper-1`)
+- `--provider`: Engine `openai` (Standard) oder `local` (faster-whisper)
+- `--model`: Modell/Größe; Default providerabhängig (`openai`: `gpt-4o-mini-transcribe`, `local`: `small`)
 - `--language`: Sprache festlegen (Standard: `de`)
 - `--output-dir`: Ausgabeordner (Standard: `output`)
 - `--suffix`: Dateiendung (Standard: `.md`)

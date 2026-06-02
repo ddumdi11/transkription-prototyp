@@ -143,6 +143,13 @@ def split_audio_file(audio_path: Path, max_size_mb: float | None = MAX_FILE_SIZE
     file_size_mb = get_file_size_mb(audio_path)
     total_duration = get_audio_duration(audio_path)
 
+    # Ohne verlässliche Dauer (ffprobe fehlgeschlagen) kann zeitbasiert nicht
+    # geteilt werden -> Datei am Stück lassen statt 0-s-Teile zu erzeugen.
+    if total_duration <= 0:
+        print("   [!] Audiodauer unbekannt (ffprobe) — kann nicht splitten, "
+              "verarbeite Datei am Stueck.")
+        return [audio_path]
+
     parts_by_size = ceil(file_size_mb / max_size_mb) if max_size_mb else 1
     parts_by_dur = ceil(total_duration / max_duration_seconds) if max_duration_seconds else 1
     num_parts = max(parts_by_size, parts_by_dur, 1)
@@ -176,8 +183,19 @@ def split_audio_file(audio_path: Path, max_size_mb: float | None = MAX_FILE_SIZE
             str(part_path)
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True)
-        part_dur = get_audio_duration(part_path)
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        part_dur = get_audio_duration(part_path) if part_path.exists() else 0.0
+        # Fehlgeschlagenen/leeren Teil nicht weiterreichen — sonst landet
+        # Muell im Transkript. Aufraeumen und klar melden.
+        if proc.returncode != 0 or part_dur <= 0:
+            for p in parts:
+                p.unlink(missing_ok=True)
+            part_path.unlink(missing_ok=True)
+            temp_dir.rmdir()
+            raise RuntimeError(
+                f"ffmpeg-Split fehlgeschlagen fuer Teil {i+1}/{num_parts} von "
+                f"{audio_path.name}: {(proc.stderr or '').strip()[-200:]}"
+            )
         parts.append(part_path)
         print(f"      Teil {i+1}/{num_parts}: {part_path.name} ({part_dur:.0f} s)")
 

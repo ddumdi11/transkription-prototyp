@@ -295,7 +295,7 @@ CORRECTION_MODEL=llama3.1:8b
 CORRECTION_BASE_URL=http://localhost:11434/v1
 ```
 
-In der GUI gibt es dafür den Bereich **„LLM-Korrektur (lokal, optional)"** mit Checkbox,
+In der GUI gibt es dafür den Bereich **„LLM-Korrektur (lokal, optional)“** mit Checkbox,
 Backend-Dropdown und Modell-Feld.
 
 ### Modell-Empfehlung & Robustheit
@@ -323,7 +323,11 @@ Mit `--force` (CLI) oder der Checkbox in der GUI können alle Dateien neu transk
 
 ### Automatisches Aufteilen großer Dateien
 
-Dateien über 25 MB (Whisper API Limit) werden automatisch in Teile aufgeteilt, einzeln transkribiert und das Ergebnis zusammengefügt.
+Zu große oder zu lange Dateien werden automatisch in Teile aufgeteilt, einzeln transkribiert und das Ergebnis zusammengefügt (temporäre Teildateien werden danach aufgeräumt). Was die Teilung auslöst, hängt von Provider und Modell ab:
+
+- **`whisper-1`:** nur das 25-MB-Größenlimit der API.
+- **`gpt-4o-(mini-)transcribe`:** zusätzlich ein Dauerlimit von ~23 Min pro Anfrage — lange Aufnahmen werden entsprechend nach Dauer geteilt (die bindende Grenze entscheidet).
+- **Lokal (`faster-whisper`):** kein Größen- oder Dauerlimit, also kein Splitting.
 
 ---
 

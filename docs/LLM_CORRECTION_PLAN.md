@@ -33,7 +33,7 @@ Beide ignorieren den API-Key auf localhost, verlangen aber einen nicht-leeren St
 
 Analog zur Provider-Abstraktion, aber als eigenständige, *optionale* Stufe nach der Transkription.
 
-```
+```text
 correction/
   __init__.py
   base.py            # Corrector (ABC) mit correct(text) -> str
@@ -86,7 +86,7 @@ class LLMCorrector(Corrector):
 
 Reihenfolge pro Datei:
 
-```
+```text
 transcribe (Provider)  →  Wort-Ersetzungen (bestehend)  →  [optional] LLM-Korrektur  →  speichern
 ```
 
@@ -100,7 +100,7 @@ transcribe (Provider)  →  Wort-Ersetzungen (bestehend)  →  [optional] LLM-Ko
 
 Das LLM muss **eng geführt** werden, sonst paraphrasiert oder halluziniert es. Vorgabe für `SYSTEM_PROMPT`:
 
-```
+```text
 Du bist ein Korrektor für automatisch erstellte Transkripte deutschsprachiger
 Diktate. Korrigiere AUSSCHLIESSLICH offensichtliche Transkriptionsfehler:
 falsch erkannte Wörter, Zeichensetzung, Groß-/Kleinschreibung, Wortgrenzen.
@@ -159,7 +159,7 @@ Lokale LLMs haben begrenzten Kontext; lange Diktate können das Fenster sprengen
 - `--correct-base-url URL` — überschreibt die Backend-Default-URL (für abweichende Ports/Hosts).
 
 ### .env (einmal konfigurieren)
-```
+```bash
 CORRECTION_BACKEND=ollama
 CORRECTION_MODEL=<dein-geladenes-modell>
 # optional:
