@@ -6,20 +6,31 @@ Die Sprache ist standardmäßig **Deutsch** und die Transkripte werden als **Mar
 ## Kosten & Modellwahl
 
 Die OpenAI-Transkription wird pro Audiominute abgerechnet (Prepaid-Guthaben – es kann keine
-unerwartete Rechnung entstehen). Seit Juni 2026 ist das günstigste Modell der Standard:
+unerwartete Rechnung entstehen). Mit `--model` lässt sich das Modell frei wählen; es gibt
+außerdem eine **kostenlose lokale Engine** (`faster-whisper`, läuft offline auf dem eigenen
+Rechner) – siehe [Engine wählen: Cloud vs. Lokal](#engine-wählen-cloud-vs-lokal). Optional
+kann das fertige Transkript zusätzlich durch ein **lokales LLM nachkorrigiert** werden –
+siehe [LLM-Korrektur (optional, lokal)](#llm-korrektur-optional-lokal).
 
-| Modell | Preis/Min | Hinweis |
-|--------|-----------|---------|
-| `gpt-4o-mini-transcribe` | $0.003 | **Standard** – halber Preis von whisper-1, bessere Qualität |
-| `gpt-4o-transcribe` | $0.006 | höchste Qualität |
-| `whisper-1` | $0.006 | Legacy |
+## Welches Modell? (Stand: Juni 2026, eigene Tests)
 
-Mit `--model` lässt sich das Modell frei wählen. Es gibt außerdem eine **kostenlose
-lokale Engine** (`faster-whisper`, läuft offline auf dem eigenen Rechner) – siehe
-Abschnitt [Engine wählen: Cloud vs. Lokal](#engine-wählen-cloud-vs-lokal).
+Kurzfassung: **Der Standard `gpt-4o-mini-transcribe` ist die beste Wahl** —
+höchste Qualität bei niedrigstem Cloud-Preis.
 
-Optional kann das fertige Transkript zusätzlich durch ein **lokales LLM nachkorrigiert**
-werden – siehe [LLM-Korrektur (optional, lokal)](#llm-korrektur-optional-lokal).
+| Modell | Preis/Min | Wann |
+|---|---|---|
+| `gpt-4o-mini-transcribe` (Default) | $0.003 | Standard für alles. Top-Qualität; baut bei schwierigen Stellen sicher ab und erfindet nichts. |
+| `whisper-1` | $0.006 | Bewährte Alternative. Kein Dauerlimit → unkompliziert bei sehr langen Aufnahmen. |
+| `gpt-4o-transcribe` | $0.006 | Höchste Stufe, neigt zum „Glätten". Doppelter Preis ohne Qualitätsvorteil gegenüber mini. |
+| lokal `large-v3` | $0 | Beste Offline-/Datenschutz-Wahl bei ruhigen, klaren Aufnahmen. **Vorsicht:** kann bei Lärm oder Zahlenketten Inhalte halluzinieren → nachprüfen. |
+| lokal `medium` / `small` | $0 | Leichtere, schnellere lokale Fallbacks mit geringerer Genauigkeit. |
+
+**Hinweise:**
+
+- Lokale Läufe nutzen einen VAD-Filter (Stille-Erkennung), der Wiederholungsartefakte reduziert (abschaltbar).
+- Die gpt-4o-Modelle haben ein Limit von ~23 Min pro Datei; lange Aufnahmen werden automatisch geteilt. `whisper-1` und die lokalen Modelle haben kein solches Limit.
+- **Der größte Qualitätshebel ist die Aufnahme selbst** — gutes Mikrofon, wenig Wind/Nebengeräusch — mehr als die Modellwahl.
+- Der `--prompt` wirkt als Vokabular-Hinweis: trage wiederkehrende Eigennamen und Fachbegriffe ein, das verbessert die Erkennung bei beiden Engines.
 
 ## Vorbereitung
 
@@ -233,9 +244,8 @@ pip install -r requirements-local.txt
 
 Lokale Modellgrößen: `tiny`, `base`, `small` (Default), `medium`, `large-v3`. Beim
 ersten Lauf lädt faster-whisper die Modellgewichte herunter (z. B. `small` ≈ 460 MB).
-Für deutsches Diktat liefert `small` brauchbare, aber nicht fehlerfreie Ergebnisse;
-`medium`/`large-v3` sind genauer, aber langsamer. Höchste Genauigkeit bietet die
-Cloud (`--model gpt-4o-transcribe`).
+Welche Größe wann sinnvoll ist (und wie die lokalen Modelle gegen die Cloud abschneiden),
+steht im Abschnitt [Welches Modell?](#welches-modell-stand-juni-2026-eigene-tests).
 
 In der GUI wählst du Engine und Modell über die Dropdowns im Bereich **„Engine"**.
 
