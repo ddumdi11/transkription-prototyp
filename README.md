@@ -6,17 +6,31 @@ Die Sprache ist standardmäßig **Deutsch** und die Transkripte werden als **Mar
 ## Kosten & Modellwahl
 
 Die OpenAI-Transkription wird pro Audiominute abgerechnet (Prepaid-Guthaben – es kann keine
-unerwartete Rechnung entstehen). Seit Juni 2026 ist das günstigste Modell der Standard:
+unerwartete Rechnung entstehen). Mit `--model` lässt sich das Modell frei wählen; es gibt
+außerdem eine **kostenlose lokale Engine** (`faster-whisper`, läuft offline auf dem eigenen
+Rechner) – siehe [Engine wählen: Cloud vs. Lokal](#engine-wählen-cloud-vs-lokal). Optional
+kann das fertige Transkript zusätzlich durch ein **lokales LLM nachkorrigiert** werden –
+siehe [LLM-Korrektur (optional, lokal)](#llm-korrektur-optional-lokal).
 
-| Modell | Preis/Min | Hinweis |
-|--------|-----------|---------|
-| `gpt-4o-mini-transcribe` | $0.003 | **Standard** – halber Preis von whisper-1, bessere Qualität |
-| `gpt-4o-transcribe` | $0.006 | höchste Qualität |
-| `whisper-1` | $0.006 | Legacy |
+## Welches Modell? (Stand: Juni 2026, eigene Tests)
 
-Mit `--model` lässt sich das Modell frei wählen. Eine **kostenlose lokale Variante**
-(`faster-whisper`, läuft offline auf dem eigenen Rechner) ist in Vorbereitung – siehe
-`docs/IMPLEMENTATION_PLAN.md`.
+Kurzfassung: **Der Standard `gpt-4o-mini-transcribe` ist die beste Wahl** —
+höchste Qualität bei niedrigstem Cloud-Preis.
+
+| Modell | Preis/Min | Wann |
+|---|---|---|
+| `gpt-4o-mini-transcribe` (Default) | $0.003 | Standard für alles. Top-Qualität; baut bei schwierigen Stellen sicher ab und erfindet nichts. |
+| `whisper-1` | $0.006 | Bewährte Alternative. Kein Dauerlimit → unkompliziert bei sehr langen Aufnahmen. |
+| `gpt-4o-transcribe` | $0.006 | Höchste Stufe, neigt zum „Glätten". Doppelter Preis ohne Qualitätsvorteil gegenüber mini. |
+| lokal `large-v3` | $0 | Beste Offline-/Datenschutz-Wahl bei ruhigen, klaren Aufnahmen. **Vorsicht:** kann bei Lärm oder Zahlenketten Inhalte halluzinieren → nachprüfen. |
+| lokal `medium` / `small` | $0 | Leichtere, schnellere lokale Fallbacks mit geringerer Genauigkeit. |
+
+**Hinweise:**
+
+- Lokale Läufe nutzen einen VAD-Filter (Stille-Erkennung), der Wiederholungsartefakte reduziert (abschaltbar).
+- Die gpt-4o-Modelle haben ein Limit von ~23 Min pro Datei; lange Aufnahmen werden automatisch geteilt. `whisper-1` und die lokalen Modelle haben kein solches Limit.
+- **Der größte Qualitätshebel ist die Aufnahme selbst** — gutes Mikrofon, wenig Wind/Nebengeräusch — mehr als die Modellwahl.
+- Der `--prompt` wirkt als Vokabular-Hinweis: trage wiederkehrende Eigennamen und Fachbegriffe ein, das verbessert die Erkennung bei beiden Engines.
 
 ## Vorbereitung
 
@@ -163,7 +177,8 @@ Die fertigen Transkripte findest du in `output/` als `.md`-Dateien.
 
 | Option | Beschreibung |
 |--------|--------------|
-| `--model` | Modell ändern (Standard: `gpt-4o-mini-transcribe`) |
+| `--provider` | Engine: `openai` (Cloud, Standard) oder `local` (faster-whisper) |
+| `--model` | Modell/Größe. Ohne Angabe wählt jeder Provider seinen Default (openai: `gpt-4o-mini-transcribe`, local: `small`) |
 | `--language` | Sprachcode (Standard: `de`) |
 | `--output-dir` | Ausgabeordner (Standard: `output`) |
 | `--suffix` | Dateiendung (Standard: `.md`) |
@@ -171,6 +186,10 @@ Die fertigen Transkripte findest du in `output/` als `.md`-Dateien.
 | `--no-replacements` | Standard-Ersetzungen deaktivieren |
 | `--no-markdown-title` | Markdown-Titel weglassen |
 | `--force` | Bereits transkribierte Dateien erneut verarbeiten |
+| `--correct` | Optionale LLM-Nachkorrektur über lokales Ollama/LM Studio aktivieren |
+| `--correct-backend` | `ollama` (Standard) oder `lmstudio` (setzt die Default-URL) |
+| `--correct-model` | Modellname für die Korrektur (Pflicht bei `--correct`) |
+| `--correct-base-url` | Backend-URL überschreiben (abweichende Ports/Hosts) |
 
 #### Beispiele
 
@@ -196,6 +215,104 @@ python transcribe.py input --force
 
 ---
 
+## Engine wählen: Cloud vs. Lokal
+
+Die Transkription kann über zwei Engines laufen:
+
+| Engine | `--provider` | Kosten | Hinweis |
+|--------|--------------|--------|---------|
+| **OpenAI (Cloud)** | `openai` (Standard) | ab $0.003/Min | beste Qualität, benötigt API-Key + Internet |
+| **Lokal (faster-whisper)** | `local` | $0 | läuft offline, kein API-Key, kein 25-MB-Limit/Splitting |
+
+```bash
+# Cloud (Standard)
+python transcribe.py input
+
+# Lokal mit Standard-Modell (small)
+python transcribe.py input --provider local
+
+# Lokal mit größerem Modell (genauer, langsamer)
+python transcribe.py input --provider local --model medium
+```
+
+**Lokale Engine installieren** (optionale, schwergewichtige Abhängigkeit – reine
+Cloud-Nutzer brauchen das nicht):
+
+```bash
+pip install -r requirements-local.txt
+```
+
+Lokale Modellgrößen: `tiny`, `base`, `small` (Default), `medium`, `large-v3`. Beim
+ersten Lauf lädt faster-whisper die Modellgewichte herunter (z. B. `small` ≈ 460 MB).
+Welche Größe wann sinnvoll ist (und wie die lokalen Modelle gegen die Cloud abschneiden),
+steht im Abschnitt [Welches Modell?](#welches-modell-stand-juni-2026-eigene-tests).
+
+In der GUI wählst du Engine und Modell über die Dropdowns im Bereich **„Engine"**.
+
+---
+
+## LLM-Korrektur (optional, lokal)
+
+Nach der Transkription kann das Transkript zusätzlich durch ein **lokales LLM**
+nachkorrigiert werden. Im Gegensatz zu den statischen Wort-Ersetzungen erkennt ein
+LLM Fehler im Kontext (z. B. Zeichensetzung, Groß-/Kleinschreibung, falsch erkannte
+Wörter). Der Schritt ist **standardmäßig aus** und greift nur mit `--correct`.
+
+> **Wichtig:** Bedeutungsverändernde ASR-Fehler (z. B. „nicht" → „nett") kann ein
+> Text-Korrektor prinzipiell nicht zuverlässig reparieren, weil die Information nur
+> im Audio steckt. Die LLM-Korrektur glättet Kosmetik und offensichtlichen Wortschrott
+> – der eigentliche Qualitätshebel ist die Wahl der Transkriptions-Engine/des Modells.
+
+### Voraussetzung: lokaler LLM-Server
+
+Du brauchst einen laufenden, OpenAI-kompatiblen LLM-Server. **Keine neue pip-Abhängigkeit**
+– die vorhandene `openai`-Bibliothek wird wiederverwendet.
+
+| Backend | Default-URL | Vorbereitung |
+|---------|-------------|--------------|
+| [Ollama](https://ollama.com) | `http://localhost:11434/v1` | Modell vorher `ollama pull <modell>` |
+| [LM Studio](https://lmstudio.ai) | `http://localhost:1234/v1` | Modell im Server-Tab laden |
+
+### Verwendung
+
+```bash
+# Korrektur über Ollama mit einem geladenen Modell
+python transcribe.py input --correct --correct-model llama3.1:8b
+
+# Über LM Studio
+python transcribe.py input --correct --correct-backend lmstudio --correct-model <modell>
+
+# Abweichender Port/Host
+python transcribe.py input --correct --correct-model <modell> --correct-base-url http://localhost:11434/v1
+```
+
+Alternativ in der `.env` konfigurieren (CLI-Argumente haben Vorrang):
+
+```bash
+CORRECTION_BACKEND=ollama
+CORRECTION_MODEL=llama3.1:8b
+# optional:
+CORRECTION_BASE_URL=http://localhost:11434/v1
+```
+
+In der GUI gibt es dafür den Bereich **„LLM-Korrektur (lokal, optional)“** mit Checkbox,
+Backend-Dropdown und Modell-Feld.
+
+### Modell-Empfehlung & Robustheit
+
+- **Modellwahl entscheidet die Qualität.** Ein fähiges Instruct-Modell (Richtwert ≥ 7–8B,
+  z. B. `llama3.1:8b`) ist deutlich besser als ein kleines 3B-Modell, das selbst Fehler
+  einbaut. Kleinere Modelle paraphrasieren eher – vor dem Dauereinsatz an echtem Diktat prüfen.
+- **Ein Transkript geht nie verloren.** Schlägt die Korrektur fehl (Server aus, Timeout,
+  Modell nicht geladen, leere Antwort), wird das unkorrigierte Transkript gespeichert und
+  die Verarbeitung läuft weiter. Verdächtig kurze Antworten (< 50 % der Originallänge)
+  werden verworfen, um versehentliches Zusammenfassen abzufangen.
+- **Lange Diktate** werden automatisch an Absatz-/Satzgrenzen in Abschnitte (~6 000 Zeichen)
+  zerlegt, einzeln korrigiert und wieder zusammengefügt.
+- **Datenschutz:** Die Korrektur läuft lokal – der Text verlässt den Rechner nicht.
+
+---
+
 ## Intelligente Verarbeitung
 
 ### Überspringen bereits transkribierter Dateien
@@ -206,7 +323,11 @@ Mit `--force` (CLI) oder der Checkbox in der GUI können alle Dateien neu transk
 
 ### Automatisches Aufteilen großer Dateien
 
-Dateien über 25 MB (Whisper API Limit) werden automatisch in Teile aufgeteilt, einzeln transkribiert und das Ergebnis zusammengefügt.
+Zu große oder zu lange Dateien werden automatisch in Teile aufgeteilt, einzeln transkribiert und das Ergebnis zusammengefügt (temporäre Teildateien werden danach aufgeräumt). Was die Teilung auslöst, hängt von Provider und Modell ab:
+
+- **`whisper-1`:** nur das 25-MB-Größenlimit der API.
+- **`gpt-4o-(mini-)transcribe`:** zusätzlich ein Dauerlimit von ~23 Min pro Anfrage — lange Aufnahmen werden entsprechend nach Dauer geteilt (die bindende Grenze entscheidet).
+- **Lokal (`faster-whisper`):** kein Größen- oder Dauerlimit, also kein Splitting.
 
 ---
 

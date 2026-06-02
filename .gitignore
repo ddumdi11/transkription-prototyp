@@ -11,6 +11,15 @@ __pycache__/
 # Cache
 .mypy_cache/
 
+# GUI-Einstellungen (nutzerlokal)
+gui_settings.json
+
 # Audio/Output (user data)
 input/
 output/
+
+# Eval & private Mess-Daten (keine committeten Tests hier; nur Clips,
+# Referenztexte und generierte Gegenüberstellungen).
+eval/clips/
+eval/out/
+test/

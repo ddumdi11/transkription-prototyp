@@ -1,27 +1,29 @@
-import os
 import argparse
+import os
 import subprocess
 import tempfile
+from math import ceil
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
-# .env laden (für OPENAI_API_KEY)
-load_dotenv()
+from correction import (
+    BACKEND_DEFAULTS,
+    DEFAULT_CHUNK_THRESHOLD,
+    Corrector,
+    build_corrector,
+    split_into_chunks,
+)
+from providers import TranscriptionProvider, get_provider
 
-API_KEY = os.getenv("OPENAI_API_KEY")
-if not API_KEY:
-    raise RuntimeError(
-        "OPENAI_API_KEY ist nicht gesetzt. "
-        "Bitte in der .env-Datei oder als Umgebungsvariable hinterlegen."
-    )
-
-client = OpenAI(api_key=API_KEY)
+# Untergrenze für die LLM-Antwortlänge relativ zum Original (Plan §6):
+# kürzere Antworten gelten als "verschluckter" Inhalt -> Original behalten.
+CORRECTION_MIN_LENGTH_RATIO = 0.5
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".webm"}
 
-# Whisper API Limit: 25 MB
+# Whisper API Limit: 25 MB (Fallback für split_audio_file, wenn kein
+# Provider-Limit übergeben wird).
 MAX_FILE_SIZE_MB = 25
 
 # Standard-Ersetzungen für häufige Erkennungsfehler
@@ -49,6 +51,57 @@ def apply_replacements(text: str, replacements: dict[str, str]) -> str:
     return result
 
 
+def _correct_chunk(corrector: Corrector, chunk: str, label: str) -> str:
+    """
+    Korrigiert einen einzelnen Abschnitt defensiv (Plan §6).
+
+    Bei JEDEM Fehler (Server aus, Timeout, Modell fehlt, leere/zu kurze
+    Antwort) wird der unkorrigierte Abschnitt zurückgegeben — Inhalt darf
+    nie verloren gehen.
+    """
+    try:
+        corrected = corrector.correct(chunk)
+    except Exception as e:
+        print(f"   [!] LLM-Korrektur fehlgeschlagen{label} ({e}); "
+              f"behalte unkorrigierten Abschnitt.")
+        return chunk
+
+    # Schutz gegen "verschluckten" Inhalt (z. B. faelschliche Zusammenfassung).
+    if len(corrected.strip()) < CORRECTION_MIN_LENGTH_RATIO * len(chunk.strip()):
+        print(f"   [!] LLM-Antwort verdaechtig kurz{label} "
+              f"({len(corrected.strip())} statt {len(chunk.strip())} Zeichen); "
+              f"behalte unkorrigierten Abschnitt.")
+        return chunk
+
+    return corrected.strip()
+
+
+def correct_text(corrector: Corrector, text: str) -> str:
+    """
+    Wendet die optionale LLM-Korrektur an (Plan §6 + §7).
+
+    Lange Transkripte werden an Absatz-/Satzgrenzen in Abschnitte zerlegt,
+    einzeln korrigiert und wieder zusammengefügt. Jeder Abschnitt ist defensiv
+    gekapselt: ein Fehler verliert nur die Korrektur dieses Abschnitts, nie
+    den Inhalt — und nie das ganze Transkript.
+    """
+    chunks = split_into_chunks(text)
+    multi = len(chunks) > 1
+    if multi:
+        print(f"   [i] Langer Text ({len(text)} Zeichen) -> "
+              f"Korrektur in {len(chunks)} Abschnitten.")
+
+    parts = []
+    for idx, chunk in enumerate(chunks, 1):
+        label = f" (Abschnitt {idx}/{len(chunks)})" if multi else ""
+        parts.append(_correct_chunk(corrector, chunk, label))
+
+    result = "\n\n".join(p.strip() for p in parts).strip()
+    print(f"   [OK] LLM-Korrektur angewendet"
+          f"{f' ({len(chunks)} Abschnitte)' if multi else ''}.")
+    return result
+
+
 def is_audio_file(path: Path) -> bool:
     return path.is_file() and path.suffix.lower() in AUDIO_EXTS
 
@@ -64,29 +117,50 @@ def transcript_exists(audio_path: Path, output_dir: Path, suffix: str) -> bool:
     return transcript_path.exists()
 
 
-def split_audio_file(audio_path: Path, max_size_mb: float = MAX_FILE_SIZE_MB) -> list[Path]:
-    """
-    Teilt eine zu große Audio-Datei in kleinere Teile.
-    Gibt eine Liste der Teil-Dateien zurück.
-    """
-    file_size_mb = get_file_size_mb(audio_path)
-
-    if file_size_mb <= max_size_mb:
-        return [audio_path]
-
-    # Berechne wie viele Teile wir brauchen
-    num_parts = int(file_size_mb / max_size_mb) + 1
-
-    # Hole die Dauer der Audio-Datei
+def get_audio_duration(path: Path) -> float:
+    """Gibt die Audiodauer in Sekunden zurück (via ffprobe)."""
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
         capture_output=True, text=True
     )
-    total_duration = float(result.stdout.strip())
-    segment_duration = total_duration / num_parts
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 0.0
 
-    print(f"   [SPLIT] Datei zu gross ({file_size_mb:.1f} MB), teile in {num_parts} Teile...")
+
+def split_audio_file(audio_path: Path, max_size_mb: float | None = MAX_FILE_SIZE_MB,
+                     max_duration_seconds: float | None = None) -> list[Path]:
+    """
+    Teilt eine zu große/zu lange Audio-Datei in kleinere Teile.
+
+    Die Teilezahl ergibt sich aus der *bindenden* Grenze (Größe ODER Dauer):
+    die gpt-4o-Transcribe-Modelle haben eine Dauergrenze (~1400 s), die bei den
+    üblichen Bitraten lange vor dem 25-MB-Größenlimit greift. Gibt eine Liste
+    der Teil-Dateien zurück (bzw. [audio_path], wenn kein Split nötig ist).
+    """
+    file_size_mb = get_file_size_mb(audio_path)
+    total_duration = get_audio_duration(audio_path)
+
+    # Ohne verlässliche Dauer (ffprobe fehlgeschlagen) kann zeitbasiert nicht
+    # geteilt werden -> Datei am Stück lassen statt 0-s-Teile zu erzeugen.
+    if total_duration <= 0:
+        print("   [!] Audiodauer unbekannt (ffprobe) — kann nicht splitten, "
+              "verarbeite Datei am Stueck.")
+        return [audio_path]
+
+    parts_by_size = ceil(file_size_mb / max_size_mb) if max_size_mb else 1
+    parts_by_dur = ceil(total_duration / max_duration_seconds) if max_duration_seconds else 1
+    num_parts = max(parts_by_size, parts_by_dur, 1)
+
+    if num_parts <= 1:
+        return [audio_path]
+
+    segment_duration = total_duration / num_parts
+    grund = "Dauer" if parts_by_dur >= parts_by_size else "Groesse"
+    print(f"   [SPLIT] Teile Datei in {num_parts} Teile "
+          f"(bindend: {grund}; {file_size_mb:.1f} MB, {total_duration:.0f} s)...")
 
     # Erstelle temporäres Verzeichnis für die Teile
     temp_dir = Path(tempfile.mkdtemp(prefix="transcribe_split_"))
@@ -96,40 +170,45 @@ def split_audio_file(audio_path: Path, max_size_mb: float = MAX_FILE_SIZE_MB) ->
         start_time = i * segment_duration
         part_path = temp_dir / f"{audio_path.stem}_{i+1:02d}{audio_path.suffix}"
 
+        # Re-Encode (kein -c copy): vermeidet falsche Dauer-Metadata durch
+        # mitkopierte VBR-Header (Xing/Info); jede Teildatei meldet ihre echte
+        # Dauer. ffmpeg waehlt den Encoder anhand der Dateiendung.
         cmd = [
             "ffmpeg", "-y",
-            "-i", str(audio_path),
             "-ss", str(start_time),
             "-t", str(segment_duration),
-            "-c", "copy",
+            "-i", str(audio_path),
+            "-map", "0:a",
+            "-reset_timestamps", "1",
             str(part_path)
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        part_dur = get_audio_duration(part_path) if part_path.exists() else 0.0
+        # Fehlgeschlagenen/leeren Teil nicht weiterreichen — sonst landet
+        # Muell im Transkript. Aufraeumen und klar melden.
+        if proc.returncode != 0 or part_dur <= 0:
+            for p in parts:
+                p.unlink(missing_ok=True)
+            part_path.unlink(missing_ok=True)
+            temp_dir.rmdir()
+            raise RuntimeError(
+                f"ffmpeg-Split fehlgeschlagen fuer Teil {i+1}/{num_parts} von "
+                f"{audio_path.name}: {(proc.stderr or '').strip()[-200:]}"
+            )
         parts.append(part_path)
-        print(f"      Teil {i+1}/{num_parts}: {part_path.name}")
+        print(f"      Teil {i+1}/{num_parts}: {part_path.name} ({part_dur:.0f} s)")
 
     return parts
 
 
-def transcribe_file(audio_path: Path, model: str, language: str, prompt: str = None) -> str:
+def transcribe_file(audio_path: Path, provider: TranscriptionProvider,
+                    language: str, prompt: str = None) -> str:
     """
     Vollständige Transkription (ohne Zeitmarken) als reinen Text zurückgeben.
     """
     print(f"-> Transkribiere: {audio_path.name} ...")
-
-    with audio_path.open("rb") as f:
-        kwargs = {
-            "model": model,
-            "file": f,
-            "language": language,
-        }
-        if prompt:
-            kwargs["prompt"] = prompt
-
-        result = client.audio.transcriptions.create(**kwargs)
-
-    return result.text
+    return provider.transcribe(audio_path, language=language, prompt=prompt)
 
 
 def write_transcript(
@@ -191,12 +270,23 @@ def main():
         help="Audiodatei oder Ordner mit Audiodateien (z. B. 'input')",
     )
     parser.add_argument(
-        "--model",
-        default="gpt-4o-mini-transcribe",
+        "--provider",
+        default="openai",
+        choices=["openai", "local"],
         help=(
-            "Transkriptionsmodell. Standard: gpt-4o-mini-transcribe "
-            "($0.003/Min, ~halber Preis von whisper-1 bei besserer Qualitaet). "
-            "Alternativen: gpt-4o-transcribe ($0.006/Min), whisper-1 ($0.006/Min)."
+            "Transkriptions-Engine. Standard: openai (Cloud, kostenpflichtig). "
+            "local = faster-whisper (lokal, kostenlos, ohne API-Key/Netz)."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Modell/Modellgröße. Bedeutung haengt vom Provider ab. "
+            "Ohne Angabe waehlt jeder Provider seinen Default: "
+            "openai -> gpt-4o-mini-transcribe ($0.003/Min; Alternativen: "
+            "gpt-4o-transcribe, whisper-1); "
+            "local -> small (Alternativen: tiny, base, medium, large-v3)."
         ),
     )
     parser.add_argument(
@@ -230,6 +320,39 @@ def main():
         help="Standard-Ersetzungen deaktivieren.",
     )
     parser.add_argument(
+        "--correct",
+        action="store_true",
+        help=(
+            "Optionale LLM-Nachkorrektur ueber ein lokales, OpenAI-kompatibles "
+            "Backend (Ollama/LM Studio) aktivieren. Standard: aus."
+        ),
+    )
+    parser.add_argument(
+        "--correct-backend",
+        choices=["ollama", "lmstudio"],
+        default=None,
+        help=(
+            "Backend fuer die LLM-Korrektur (setzt die Default-URL). "
+            "Standard: ollama bzw. CORRECTION_BACKEND aus .env."
+        ),
+    )
+    parser.add_argument(
+        "--correct-model",
+        default=None,
+        help=(
+            "Modellname fuer die LLM-Korrektur (Pflicht bei --correct; "
+            "kein universeller Default). Alternativ CORRECTION_MODEL in .env."
+        ),
+    )
+    parser.add_argument(
+        "--correct-base-url",
+        default=None,
+        help=(
+            "Ueberschreibt die Backend-Default-URL (abweichende Ports/Hosts). "
+            "Alternativ CORRECTION_BASE_URL in .env."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Bereits transkribierte Dateien erneut verarbeiten.",
@@ -237,8 +360,35 @@ def main():
 
     args = parser.parse_args()
 
+    # .env laden (für CORRECTION_*; OpenAIProvider lädt zusätzlich selbst).
+    load_dotenv()
+
     input_path = Path(args.input).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
+
+    # Transkriptions-Engine wählen. Fehler hier (fehlender API-Key bei openai,
+    # nicht installiertes faster-whisper bei local) klar melden statt Traceback.
+    try:
+        provider = get_provider(args.provider, model=args.model)
+    except (RuntimeError, ValueError) as e:
+        print(f"[X] {e}")
+        raise SystemExit(1)
+
+    # Optionale LLM-Korrektur vorbereiten (Default: aus). CLI hat Vorrang vor .env.
+    corrector = None
+    if args.correct:
+        backend = args.correct_backend or os.getenv("CORRECTION_BACKEND") or "ollama"
+        model = args.correct_model or os.getenv("CORRECTION_MODEL")
+        base_url = args.correct_base_url or os.getenv("CORRECTION_BASE_URL")
+        try:
+            corrector = build_corrector(backend, model, base_url)
+        except (ValueError, RuntimeError) as e:
+            print(f"[X] {e}")
+            raise SystemExit(1)
+        print(
+            f"LLM-Korrektur aktiv: backend={backend}, model={model}, "
+            f"url={base_url or BACKEND_DEFAULTS.get(backend)}"
+        )
 
     audio_files = collect_audio_files(input_path)
     print(f"Gefundene Audio-Dateien: {len(audio_files)}")
@@ -259,17 +409,24 @@ def main():
                 skipped += 1
                 continue
 
-            # Prüfen ob Datei zu groß ist und ggf. splitten
+            # Prüfen ob Datei zu groß ODER zu lang ist und ggf. splitten.
+            # Splitting nur, wenn der Provider überhaupt eine Grenze hat
+            # (lokale Engines haben keine -> kein Splitting nötig).
+            size_limit = provider.max_file_size_mb
+            dur_limit = provider.max_duration_seconds
             file_size_mb = get_file_size_mb(audio)
-            if file_size_mb > MAX_FILE_SIZE_MB:
+            over_size = bool(size_limit) and file_size_mb > size_limit
+            over_dur = bool(dur_limit) and get_audio_duration(audio) > dur_limit
+            if over_size or over_dur:
                 # Datei aufteilen und alle Teile transkribieren
-                parts = split_audio_file(audio)
+                parts = split_audio_file(
+                    audio, max_size_mb=size_limit, max_duration_seconds=dur_limit)
                 all_texts = []
 
                 for part in parts:
                     text = transcribe_file(
                         part,
-                        model=args.model,
+                        provider=provider,
                         language=args.language,
                         prompt=args.prompt,
                     )
@@ -289,13 +446,17 @@ def main():
                 # Normale Transkription
                 text = transcribe_file(
                     audio,
-                    model=args.model,
+                    provider=provider,
                     language=args.language,
                     prompt=args.prompt,
                 )
 
             # Post-Processing: Ersetzungen anwenden
             text = apply_replacements(text, replacements)
+
+            # Optionale LLM-Nachkorrektur (defensiv: Fehler -> Original behalten).
+            if corrector is not None:
+                text = correct_text(corrector, text)
 
             # Speichern
             write_transcript(

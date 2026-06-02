@@ -18,6 +18,30 @@
   Hinweis: Lokale Transkription = `faster-whisper`, **nicht** Ollama/LM Studio
   (das sind LLM-Server ohne saubere ASR; nur als optionaler Korrekturschritt vorgesehen).
 
+## Update 01.06.2026 – Provider-Abstraktion, lokale Engine & LLM-Korrektur
+
+Umgesetzt durch Claude Code (Kurt), in getrennten Commits:
+
+- ✅ **Provider-Abstraktion** (`providers/`): Transkriptions-Engine austauschbar
+  (Commit `6dfd947`). `--provider {openai,local}`; `--model=None` → jeder Provider
+  wählt seinen Default (openai: `gpt-4o-mini-transcribe`, local: `small`).
+- ✅ **Lokale Engine** `faster-whisper` (`providers/local_provider.py`, Commit
+  `66ee3e4`): kostenlos, offline, kein 25-MB-Splitting; optionale Abhängigkeit
+  (`requirements-local.txt`), defensiver Import. GUI mit Engine-/Modell-Dropdown,
+  Einstellungen in `gui_settings.json`.
+  - Qualität (echter Lauf): `small` für dt. Diktat brauchbar, aber nicht fehlerfrei;
+    `medium`/`large-v3` genauer; höchste Genauigkeit über Cloud `gpt-4o-transcribe`.
+- ✅ **Optionale LLM-Korrektur** (`correction/`, Commit `dd22d5b` + Chunking/GUI/Doku):
+  Nachkorrektur über lokales Ollama/LM Studio (OpenAI-kompatibel, keine neue
+  Abhängigkeit). `--correct`/`--correct-backend`/`--correct-model`/`--correct-base-url`,
+  `.env` `CORRECTION_*` mit CLI-Vorrang. **Default aus.** Defensiv: jeder Fehler →
+  unkorrigiertes Transkript behalten; Längen-Schutz (< 50 %); Chunking langer Texte
+  an Absatz-/Satzgrenzen (~6 000 Zeichen). GUI-Checkbox + Backend/Modell + Persistenz.
+- 📋 Pläne: `docs/IMPLEMENTATION_PLAN.md` (Provider, abgeschlossen),
+  `docs/LLM_CORRECTION_PLAN.md` (Korrektur), `docs/ASR_QUALITY_SPIKE.md`
+  (Mess-Protokoll für den eigentlichen Qualitätshebel; audio-nativer Gemma/llama.cpp-
+  Pfad bewusst geparkt).
+
 ## Aktueller Stand
 
 Das Projekt ist **funktionsfähig und produktionsbereit**. Alle Kernfunktionen sind implementiert und getestet.
@@ -84,14 +108,16 @@ Das Projekt ist **funktionsfähig und produktionsbereit**. Alle Kernfunktionen s
   - Standard: Dateien mit vorhandenem Transkript werden übersprungen
   - `--force`: Alle Dateien neu transkribieren
 
-- ✅ **Automatisches Aufteilen großer Dateien**
-  - Dateien >25MB (Whisper API Limit) werden automatisch geteilt
-  - Teile werden einzeln transkribiert und zusammengefügt
-  - Temporäre Dateien werden automatisch aufgeräumt
+- ✅ **Automatisches Aufteilen großer/langer Dateien** (provider-/modellabhängig)
+  - `whisper-1`: nur 25-MB-Größenlimit der API
+  - `gpt-4o-(mini-)transcribe`: zusätzlich Dauerlimit ~23 Min/Anfrage → Dauer-Split
+  - lokal (`faster-whisper`): kein Größen-/Dauerlimit → kein Split
+  - Teile werden einzeln transkribiert und zusammengefügt; temporäre Dateien aufgeräumt
 
 ### CLI-Optionen (transcribe.py)
 
-- `--model`: Modell auswählen (Standard: `whisper-1`)
+- `--provider`: Engine `openai` (Standard) oder `local` (faster-whisper)
+- `--model`: Modell/Größe; Default providerabhängig (`openai`: `gpt-4o-mini-transcribe`, `local`: `small`)
 - `--language`: Sprache festlegen (Standard: `de`)
 - `--output-dir`: Ausgabeordner (Standard: `output`)
 - `--suffix`: Dateiendung (Standard: `.md`)
