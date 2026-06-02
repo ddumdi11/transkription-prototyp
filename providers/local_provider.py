@@ -24,7 +24,7 @@ class LocalWhisperProvider(TranscriptionProvider):
     name = "local"
 
     def __init__(self, model_size: str | None = None, device: str = "auto",
-                 compute_type: str = "auto"):
+                 compute_type: str = "auto", vad_filter: bool = True):
         if WhisperModel is None:
             raise RuntimeError(
                 "Lokale Transkription benötigt faster-whisper: "
@@ -33,6 +33,11 @@ class LocalWhisperProvider(TranscriptionProvider):
 
         # model_size=None -> Provider-eigener Default (siehe Plan §3.4a).
         self.model_size = model_size or DEFAULT_MODEL_SIZE
+
+        # VAD (Voice Activity Detection) filtert Stille/Rauschen vor der
+        # Transkription heraus. Reduziert Whisper-Wiederholungsartefakte auf
+        # stummen/verrauschten Passagen. Default an, abschaltbar.
+        self.vad_filter = vad_filter
 
         # device="auto": CUDA falls verfügbar, sonst CPU.
         # Beim ersten Lauf werden die Modellgewichte heruntergeladen.
@@ -58,5 +63,6 @@ class LocalWhisperProvider(TranscriptionProvider):
             str(audio_path),
             language=language,
             initial_prompt=prompt,  # Pendant zum OpenAI-prompt
+            vad_filter=self.vad_filter,
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
