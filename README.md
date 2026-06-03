@@ -14,16 +14,18 @@ siehe [LLM-Korrektur (optional, lokal)](#llm-korrektur-optional-lokal).
 
 ## Welches Modell? (Stand: Juni 2026, eigene Tests)
 
-Kurzfassung: **Der Standard `gpt-4o-mini-transcribe` ist die beste Wahl** —
-höchste Qualität bei niedrigstem Cloud-Preis.
+Kurzfassung: **`gpt-4o-mini-transcribe` ist der günstige Default für den Alltag** —
+für lange/technische Diktate gezielt `gpt-4o-transcribe` (Details in der Tabelle).
 
 | Modell | Preis/Min | Wann |
 |---|---|---|
-| `gpt-4o-mini-transcribe` (Default) | $0.003 | Standard für alles. Top-Qualität; baut bei schwierigen Stellen sicher ab und erfindet nichts. |
+| `gpt-4o-mini-transcribe` (Default) | $0.003 | Standard für Alltag/einfache Notizen. Bei langen, technischen oder projektrelevanten Diktaten kann es in Wiederholungsschleifen fallen — dann `gpt-4o-transcribe` nutzen. |
 | `whisper-1` | $0.006 | Bewährte Alternative. Kein Dauerlimit → unkompliziert bei sehr langen Aufnahmen. |
-| `gpt-4o-transcribe` | $0.006 | Höchste Stufe, neigt zum „Glätten". Doppelter Preis ohne Qualitätsvorteil gegenüber mini. |
+| `gpt-4o-transcribe` | $0.006 | Empfohlen für projektrelevante/technische/lange Diktate: stabiler, weniger Nacharbeit. Der doppelte Preis ist dort gerechtfertigt. |
 | lokal `large-v3` | $0 | Beste Offline-/Datenschutz-Wahl bei ruhigen, klaren Aufnahmen. **Vorsicht:** kann bei Lärm oder Zahlenketten Inhalte halluzinieren → nachprüfen. |
 | lokal `medium` / `small` | $0 | Leichtere, schnellere lokale Fallbacks mit geringerer Genauigkeit. |
+
+**Zweistufig:** mini als günstiger Default für den Alltag, `gpt-4o-transcribe` gezielt für anspruchsvolle Diktate — der Mehrpreis spart dort Nacharbeit.
 
 **Hinweise:**
 
