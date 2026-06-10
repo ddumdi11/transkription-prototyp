@@ -1,7 +1,9 @@
 import argparse
 import os
+import re
 import subprocess
 import tempfile
+from datetime import datetime
 from math import ceil
 from pathlib import Path
 
@@ -111,6 +113,88 @@ def get_file_size_mb(path: Path) -> float:
     return path.stat().st_size / (1024 * 1024)
 
 
+def extract_recording_number(filename: str) -> int | None:
+    """
+    Extrahiert die Aufnahme-Nummer aus dem Dateinamen (erste Zahlengruppe,
+    konsistent zur Sortierlogik in join_audio.py).
+    """
+    match = re.search(r"(\d+)", filename)
+    return int(match.group(1)) if match else None
+
+
+def build_metadata_header(audio_path: Path, model_label: str,
+                          corrected: bool) -> str:
+    """
+    Baut den Metadaten-Kopf für Einzeltranskripte (BUG-TRANSCRIBE-001).
+
+    'Kontext' bleibt bewusst leer: die inhaltliche Einordnung kann nur der
+    Nutzer (oder eine spätere LLM-Analyse) liefern.
+    'Datum' ist das Dateidatum (mtime) — beim Diktiergerät i. d. R. das
+    Aufnahmedatum.
+    """
+    number = extract_recording_number(audio_path.stem)
+    title = (f"# Aufnahme #{number}" if number is not None
+             else f"# Aufnahme: {audio_path.stem}")
+    datum = datetime.fromtimestamp(
+        audio_path.stat().st_mtime).strftime("%Y-%m-%d")
+    status = "Rohtranskript (LLM-korrigiert)" if corrected else "Rohtranskript"
+    return (
+        f"{title}\n"
+        f"- Datei: {audio_path.name}\n"
+        f"- Datum: {datum}\n"
+        f"- Modell: {model_label}\n"
+        f"- Quelle: Einzelaufnahme\n"
+        f"- Kontext:\n"
+        f"- Status: {status}\n"
+    )
+
+
+def write_merged_transcript(folder_name: str, transcript_paths: list[Path],
+                            output_dir: Path, suffix: str = ".md") -> Path | None:
+    """
+    Stellt die Einzeltranskripte eines Quellordners auf TEXTebene zu einer
+    Sammeldatei <Ordnername><suffix> zusammen (BUG-TRANSCRIBE-001: Zusammen-
+    führung erst NACH der Transkription; Einzeltranskripte bleiben erhalten,
+    Metadaten-Köpfe werden mit übernommen).
+    """
+    paths = [p for p in transcript_paths if p.exists()]
+    if not paths:
+        return None
+
+    # Reihenfolge: Aufnahme-Nummer, sonst Dateiname.
+    paths.sort(key=lambda p: (extract_recording_number(p.stem) is None,
+                              extract_recording_number(p.stem) or 0, p.name))
+
+    header = (
+        f"# Sammeltranskript: {folder_name}\n"
+        f"- Erstellt: {datetime.now().strftime('%Y-%m-%d')}\n"
+        f"- Aufnahmen: {len(paths)}\n"
+        f"- Quelle: Zusammenstellung auf Textebene "
+        f"(Einzeltranskripte bleiben erhalten)\n"
+    )
+    parts = [p.read_text(encoding="utf-8").strip() for p in paths]
+    content = header + "\n---\n\n" + "\n\n---\n\n".join(parts) + "\n"
+
+    out_path = output_dir / f"{folder_name}{suffix}"
+    out_path.write_text(content, encoding="utf-8")
+    print(f"   [OK] Sammeltranskript: {out_path} ({len(paths)} Aufnahmen)")
+    return out_path
+
+
+def top_level_subfolder(audio: Path, root: Path) -> Path | None:
+    """
+    Oberster Unterordner von root, in dem die Datei liegt
+    (None für Dateien direkt in root oder außerhalb von root).
+    """
+    try:
+        rel = audio.parent.relative_to(root)
+    except ValueError:
+        return None
+    if not rel.parts:
+        return None
+    return root / rel.parts[0]
+
+
 def transcript_exists(audio_path: Path, output_dir: Path, suffix: str) -> bool:
     """Prüft, ob bereits ein Transkript für diese Audio-Datei existiert."""
     transcript_path = output_dir / (audio_path.stem + suffix)
@@ -217,15 +301,19 @@ def write_transcript(
     output_dir: Path,
     suffix: str = ".md",
     markdown_title: bool = True,
+    header: str | None = None,
 ) -> Path:
     """
     Speichert die Transkription in output_dir als Datei mit gleichem Basenamen.
-    Bei Markdown wird ein einfacher Titel hinzugefügt.
+    Mit header wird der Metadaten-Kopf vorangestellt; sonst bei Markdown
+    ein einfacher Titel.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / (audio_path.stem + suffix)
 
-    if markdown_title and suffix.lower() == ".md":
+    if header:
+        content = f"{header}\n{text.strip()}\n"
+    elif markdown_title and suffix.lower() == ".md":
         content = f"# Transkript: {audio_path.name}\n\n{text.strip()}\n"
     else:
         content = text
@@ -308,6 +396,32 @@ def main():
         "--no-markdown-title",
         action="store_true",
         help="Keinen Markdown-Titel in die Ausgabedatei schreiben.",
+    )
+    parser.add_argument(
+        "--metadata-header",
+        action="store_true",
+        help=(
+            "Metadaten-Kopf je Transkript schreiben (Aufnahme-Nr., Datum, "
+            "Modell, Quelle, Status). Für den Einzeldatei-Workflow gedacht."
+        ),
+    )
+    parser.add_argument(
+        "--merge-transcripts",
+        action="store_true",
+        help=(
+            "Je Quell-Unterordner zusätzlich ein Sammeltranskript "
+            "(<Ordnername>.md) auf Textebene erstellen — nach der "
+            "Einzeltranskription, Einzeltranskripte bleiben erhalten."
+        ),
+    )
+    parser.add_argument(
+        "--move-processed",
+        action="store_true",
+        help=(
+            "Quell-Unterordner nach fehlerfreiem Lauf nach 'processed/' "
+            "verschieben (nur bei Ordner-Input; Dateien direkt im "
+            "Input-Ordner bleiben liegen)."
+        ),
     )
     parser.add_argument(
         "--prompt",
@@ -401,12 +515,25 @@ def main():
     processed = 0
     errors = 0
 
+    # Für --move-processed: je oberstem Quell-Unterordner merken, ob alle
+    # seine Dateien fehlerfrei durchliefen (Skip zählt als fehlerfrei).
+    folder_ok: dict[Path, bool] = {}
+    # Für --merge-transcripts: Transkriptpfade je Quell-Unterordner sammeln
+    # (auch übersprungene — deren Transkripte existieren bereits).
+    transcripts_by_folder: dict[Path, list[Path]] = {}
+    input_is_dir = input_path.is_dir()
+
     for audio in audio_files:
+        src_folder = top_level_subfolder(audio, input_path) if input_is_dir else None
         try:
             # Prüfen ob bereits transkribiert
             if not args.force and transcript_exists(audio, output_dir, args.suffix):
                 print(f"[SKIP] Ueberspringe (bereits vorhanden): {audio.name}")
                 skipped += 1
+                if src_folder:
+                    folder_ok.setdefault(src_folder, True)
+                    transcripts_by_folder.setdefault(src_folder, []).append(
+                        output_dir / (audio.stem + args.suffix))
                 continue
 
             # Prüfen ob Datei zu groß ODER zu lang ist und ggf. splitten.
@@ -458,19 +585,59 @@ def main():
             if corrector is not None:
                 text = correct_text(corrector, text)
 
+            # Optionaler Metadaten-Kopf (Einzeldatei-Workflow).
+            header = None
+            if args.metadata_header:
+                model_label = f"{getattr(provider, 'model', None) or getattr(provider, 'model_size', '?')} ({provider.name})"
+                header = build_metadata_header(
+                    audio, model_label, corrected=corrector is not None)
+
             # Speichern
-            write_transcript(
+            out_path = write_transcript(
                 audio_path=audio,
                 text=text,
                 output_dir=output_dir,
                 suffix=args.suffix,
                 markdown_title=not args.no_markdown_title,
+                header=header,
             )
             processed += 1
+            if src_folder:
+                folder_ok.setdefault(src_folder, True)
+                transcripts_by_folder.setdefault(src_folder, []).append(out_path)
 
         except Exception as e:
             print(f"   [X] Fehler bei {audio.name}: {e}")
             errors += 1
+            if src_folder:
+                folder_ok[src_folder] = False
+
+    # Sammeltranskript je Quellordner (Textebene) — nur bei fehlerfreiem
+    # Ordner, sonst entstünde eine unvollständige Zusammenstellung.
+    if args.merge_transcripts and input_is_dir:
+        for folder in sorted(transcripts_by_folder):
+            if not folder_ok.get(folder, False):
+                print(f"   [!] Kein Sammeltranskript fuer {folder.name} "
+                      f"(Fehler im Lauf).")
+                continue
+            try:
+                write_merged_transcript(
+                    folder.name, transcripts_by_folder[folder],
+                    output_dir, args.suffix)
+            except OSError as e:
+                print(f"   [!] Sammeltranskript fuer {folder.name} "
+                      f"fehlgeschlagen: {e}")
+
+    # Quell-Unterordner nach fehlerfreiem Lauf aufräumen (Einzeldatei-Workflow,
+    # BUG-TRANSCRIBE-001). Bewusst defensiv: bei Fehlern bleibt der Ordner liegen.
+    if args.move_processed and input_is_dir:
+        from join_audio import move_to_processed
+        for folder in sorted(folder_ok):
+            if folder_ok[folder] and folder.exists():
+                try:
+                    move_to_processed(folder)
+                except OSError as e:
+                    print(f"   [!] Konnte {folder.name} nicht verschieben: {e}")
 
     # Zusammenfassung
     print(f"\n{'=' * 40}")
