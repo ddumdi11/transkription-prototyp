@@ -7,6 +7,7 @@ Starte mit:
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -41,13 +42,20 @@ DEFAULT_MODEL_BY_PROVIDER = {"openai": "gpt-4o-mini-transcribe", "local": "small
 CORRECTION_BACKEND_LABELS = {"Ollama": "ollama", "LM Studio": "lmstudio"}
 CORRECTION_BACKEND_VALUES = {v: k for k, v in CORRECTION_BACKEND_LABELS.items()}
 
+# Workflow-Modus (BUG-TRANSCRIBE-001): "single" = jede Aufnahme einzeln
+# transkribieren (neuer Standard, Metadaten bleiben erhalten);
+# "join" = Audios vorher zusammenfügen (alter Ablauf, Sonderfall).
+WORKFLOW_TEXT_SINGLE = "▶ Kompletter Workflow (Einzeltranskription)"
+WORKFLOW_TEXT_JOIN = "▶ Kompletter Workflow (Zusammenfügen + Transkription)"
+
 
 class TranscriptionGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Transkriptions-Prototyp")
-        self.root.geometry("700x600")
-        self.root.minsize(600, 500)
+        # Fenstergröße wird nach dem Aufbau der Widgets gesetzt
+        # (Inhaltshöhe messen bzw. gespeicherte Größe wiederherstellen).
+        self.root.minsize(640, 560)
 
         # Gespeicherte Einstellungen laden (oder leeres Dict).
         settings = self._load_settings()
@@ -59,6 +67,16 @@ class TranscriptionGUI:
             "prompt", "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"))
         self.move_after_join = tk.BooleanVar(value=settings.get("move_after_join", True))
         self.force_retranscribe = tk.BooleanVar(value=False)
+
+        # Workflow-Modus: Einzeltranskription ist der neue Standard.
+        mode = settings.get("workflow_mode", "single")
+        if mode not in ("single", "join"):
+            mode = "single"
+        self.workflow_mode = tk.StringVar(value=mode)
+        self.move_after_transcribe = tk.BooleanVar(
+            value=settings.get("move_after_transcribe", True))
+        self.merge_transcripts = tk.BooleanVar(
+            value=settings.get("merge_transcripts", True))
         self.no_replacements = tk.BooleanVar(value=settings.get("no_replacements", False))
 
         # Engine-/Modell-Wahl. Pro Engine wird die zuletzt gewählte Modellgröße
@@ -83,6 +101,7 @@ class TranscriptionGUI:
         self.running_process = None
 
         self._create_widgets()
+        self._init_window_size(settings)
         self._check_api_key()
 
         # Einstellungen beim Schließen sichern.
@@ -118,6 +137,37 @@ class TranscriptionGUI:
         """Gewählte Modellgröße für die aktuelle Engine merken."""
         self._model_per_provider[self._current_provider()] = self.model.get()
 
+    def _init_window_size(self, settings: dict):
+        """
+        Setzt die Start-Fenstergröße: zuletzt gespeicherte Größe, sonst die
+        tatsächlich benötigte Inhaltshöhe (gedeckelt auf Bildschirmhöhe).
+        Verhindert, dass neue GUI-Elemente unten aus dem Fenster wachsen.
+        """
+        saved = settings.get("window_size")
+        if saved and re.fullmatch(r"\d{3,4}x\d{3,4}", saved):
+            self.root.geometry(saved)
+            return
+        self.root.update_idletasks()
+        width = max(self.root.winfo_reqwidth(), 700)
+        height = min(self.root.winfo_reqheight() + 20,
+                     self.root.winfo_screenheight() - 80)
+        self.root.geometry(f"{width}x{height}")
+
+    def _is_single_mode(self) -> bool:
+        """True, wenn der Einzeldatei-Workflow (neuer Standard) aktiv ist."""
+        return self.workflow_mode.get() == "single"
+
+    def _on_mode_change(self):
+        """Workflow-Modus gewechselt -> Buttons/Checkboxen anpassen."""
+        single = self._is_single_mode()
+        self.join_btn.config(state=tk.DISABLED if single else tk.NORMAL)
+        self.move_transcribe_check.config(
+            state=tk.NORMAL if single else tk.DISABLED)
+        self.merge_check.config(
+            state=tk.NORMAL if single else tk.DISABLED)
+        self.workflow_btn.config(
+            text=WORKFLOW_TEXT_SINGLE if single else WORKFLOW_TEXT_JOIN)
+
     def _current_correct_backend(self) -> str:
         """Interner Backend-Wert (ollama/lmstudio) der Korrektur-Wahl."""
         return CORRECTION_BACKEND_LABELS.get(self.correct_backend.get(), "ollama")
@@ -147,11 +197,17 @@ class TranscriptionGUI:
             "prompt": self.prompt.get(),
             "move_after_join": self.move_after_join.get(),
             "no_replacements": self.no_replacements.get(),
+            "workflow_mode": self.workflow_mode.get(),
+            "move_after_transcribe": self.move_after_transcribe.get(),
+            "merge_transcripts": self.merge_transcripts.get(),
             "provider": self._current_provider(),
             "model_per_provider": self._model_per_provider,
             "correct_enabled": self.correct_enabled.get(),
             "correct_backend": self._current_correct_backend(),
             "correct_model": self.correct_model.get(),
+            # Nur Breite x Höhe (ohne Position) merken — eine gespeicherte
+            # Position könnte nach Monitorwechsel außerhalb des Sichtbaren liegen.
+            "window_size": self.root.geometry().split("+")[0],
         }
         try:
             SETTINGS_FILE.write_text(
@@ -189,6 +245,27 @@ class TranscriptionGUI:
         # === Aktionen ===
         action_frame = ttk.LabelFrame(main_frame, text="Aktionen", padding="10")
         action_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # Workflow-Modus (BUG-TRANSCRIBE-001): Einzeltranskription ist Standard.
+        mode_frame = ttk.Frame(action_frame)
+        mode_frame.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Einzeln transkribieren (Standard) — Metadaten je Aufnahme bleiben erhalten",
+            value="single",
+            variable=self.workflow_mode,
+            command=self._on_mode_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            mode_frame,
+            text="Vorher zusammenfügen (Sonderfall) — Aufnahmen bewusst als eine Einheit",
+            value="join",
+            variable=self.workflow_mode,
+            command=self._on_mode_change,
+        ).pack(anchor=tk.W)
+
+        ttk.Separator(action_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 8))
 
         # Buttons nebeneinander
         button_container = ttk.Frame(action_frame)
@@ -230,16 +307,33 @@ class TranscriptionGUI:
             variable=self.force_retranscribe
         ).pack(anchor=tk.W, pady=(5, 0))
 
+        self.move_transcribe_check = ttk.Checkbutton(
+            transcribe_frame,
+            text="Quellordner nach processed/ verschieben",
+            variable=self.move_after_transcribe
+        )
+        self.move_transcribe_check.pack(anchor=tk.W, pady=(5, 0))
+
+        self.merge_check = ttk.Checkbutton(
+            transcribe_frame,
+            text="Sammeltranskript je Ordner erstellen",
+            variable=self.merge_transcripts
+        )
+        self.merge_check.pack(anchor=tk.W, pady=(5, 0))
+
         # Kompletter Workflow Button
         ttk.Separator(action_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
 
         self.workflow_btn = ttk.Button(
             action_frame,
-            text="▶ Kompletter Workflow (1 + 2)",
+            text=WORKFLOW_TEXT_SINGLE,
             command=self._full_workflow,
             style="Primary.TButton"
         )
         self.workflow_btn.pack(fill=tk.X)
+
+        # Buttons/Checkboxen an den gespeicherten Workflow-Modus anpassen.
+        self._on_mode_change()
 
         # === Engine (Transkription) ===
         engine_frame = ttk.LabelFrame(main_frame, text="Engine (Transkription)", padding="10")
@@ -377,9 +471,13 @@ class TranscriptionGUI:
         self.log_text.config(state=tk.DISABLED)
 
     def _set_buttons_state(self, enabled: bool):
-        """Aktiviert/Deaktiviert alle Aktions-Buttons."""
+        """Aktiviert/Deaktiviert alle Aktions-Buttons (modusabhängig)."""
         state = tk.NORMAL if enabled else tk.DISABLED
-        self.join_btn.config(state=state)
+        # Join-Button bleibt im Einzelmodus deaktiviert.
+        if enabled and self._is_single_mode():
+            self.join_btn.config(state=tk.DISABLED)
+        else:
+            self.join_btn.config(state=state)
         self.transcribe_btn.config(state=state)
         self.workflow_btn.config(state=state)
 
@@ -474,6 +572,15 @@ class TranscriptionGUI:
         if self.no_replacements.get():
             cmd.append("--no-replacements")
 
+        # Einzeldatei-Workflow: Metadaten-Kopf je Aufnahme; optional Quellordner
+        # nach fehlerfreiem Lauf aufräumen.
+        if self._is_single_mode():
+            cmd.append("--metadata-header")
+            if self.merge_transcripts.get():
+                cmd.append("--merge-transcripts")
+            if self.move_after_transcribe.get():
+                cmd.append("--move-processed")
+
         if self.correct_enabled.get():
             model = self.correct_model.get().strip()
             if not model:
@@ -493,14 +600,19 @@ class TranscriptionGUI:
         self._run_command(cmd, "Transkription")
 
     def _full_workflow(self):
-        """Führt den kompletten Workflow aus (Join + Transcribe)."""
+        """Führt den kompletten Workflow aus (modusabhängig)."""
         input_path = Path(self.input_folder.get())
 
         if not input_path.exists():
             messagebox.showerror("Fehler", f"Input-Ordner existiert nicht:\n{input_path}")
             return
 
-        # Erst Join, dann Transcribe
+        # Einzelmodus (Standard): kein Join — direkt einzeln transkribieren.
+        if self._is_single_mode():
+            self._transcribe()
+            return
+
+        # Sonderfall: Erst Join, dann Transcribe
         cmd = [sys.executable, "join_audio.py", str(input_path), "--all-subfolders"]
 
         if self.move_after_join.get():
