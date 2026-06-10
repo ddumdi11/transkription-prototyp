@@ -40,7 +40,7 @@ Jede Aufnahme wird einzeln transkribiert und als eigene Datei mit Metadaten-Kopf
 
 ## Gewünschter Ablauf (Soll)
 
-```
+```text
 Audio #262  →  Transkript_262.md
 Audio #263  →  Transkript_263.md
 Audio #264  →  Transkript_264.md
