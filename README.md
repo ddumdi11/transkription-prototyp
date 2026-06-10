@@ -65,17 +65,37 @@ Die grafische Oberfläche ist ideal, wenn du das Tool nicht täglich nutzt und n
 python gui.py
 ```
 
+### Workflow-Modus
+
+Oben im Bereich **Aktionen** wählst du den Workflow-Modus:
+
+- **Einzeln transkribieren (Standard):** Jede Aufnahme wird einzeln transkribiert und
+  als eigene Datei mit Metadaten-Kopf gespeichert (Aufnahme-Nr., Datum, Modell, Quelle,
+  Status). Aufnahme-Grenzen und Zuordnung bleiben erhalten; nach fehlerfreiem Lauf werden
+  die Quell-Unterordner optional nach `processed/` verschoben. Optional (Standard: an)
+  entsteht zusätzlich je Quellordner ein **Sammeltranskript auf Textebene**
+  (`<Ordnername>.md` aus allen Einzeltranskripten inkl. Metadaten-Köpfen — die
+  Einzeltranskripte bleiben erhalten).
+- **Vorher zusammenfügen (Sonderfall):** Der alte Ablauf. Nur sinnvoll, wenn Aufnahmen
+  bewusst eine einzige zusammenhängende Einheit bilden sollen (z. B. Batch-Kostenoptimierung
+  oder längerer Kontext für Satzanschlüsse). Achtung: Im Sammeltranskript können einzelne
+  Inhalte untergewichtet oder nicht mehr einer Aufnahme zuordenbar sein (siehe
+  `docs/BUG-TRANSCRIBE-001.md`).
+
 ### Funktionen
 
 Die GUI bietet drei Hauptaktionen:
 
-1. **Audio zusammenfügen** - Fügt alle Audio-Dateien aus Unterordnern zusammen
+1. **Audio zusammenfügen** (nur im Sonderfall-Modus aktiv) - Fügt alle Audio-Dateien aus Unterordnern zusammen
    - Option: "Nach Zusammenfügen verschieben" (verschiebt Quellordner nach `processed/`)
 
 2. **Transkribieren** - Transkribiert alle Audio-Dateien im Input-Ordner
    - Option: "Bereits transkribierte neu verarbeiten" (überschreibt vorhandene Transkripte)
+   - Option: "Quellordner nach processed/ verschieben" (nur Einzelmodus)
+   - Option: "Sammeltranskript je Ordner erstellen" (nur Einzelmodus)
 
-3. **Kompletter Workflow** - Führt beide Schritte nacheinander aus
+3. **Kompletter Workflow** - Modusabhängig: im Einzelmodus nur Transkription,
+   im Sonderfall-Modus Zusammenfügen + Transkription
 
 ### Einstellungen in der GUI
 
@@ -88,7 +108,32 @@ Die GUI bietet drei Hauptaktionen:
 
 ## CLI-Modus (Für regelmäßige Nutzung / Automatisierung)
 
-### Schnellstart
+### Schnellstart (Standard: Einzeltranskription)
+
+```bash
+# Jede Aufnahme einzeln transkribieren (Metadaten-Kopf), je Quellordner ein
+# Sammeltranskript auf Textebene, Ordner danach nach processed/ verschieben
+python transcribe.py input --metadata-header --merge-transcripts --move-processed --prompt "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
+```
+
+Aus `input/MyCents_2026-06-10/` (drei Aufnahmen) entsteht so in `output/`:
+`262.md`, `263.md`, `264.md` **und** `MyCents_2026-06-10.md` (Zusammenstellung).
+
+Jedes Transkript beginnt dann mit einem Metadaten-Kopf, z. B.:
+
+```markdown
+# Aufnahme #264
+- Datei: 264.mp3
+- Datum: 2026-06-08
+- Modell: gpt-4o-mini-transcribe (openai)
+- Quelle: Einzelaufnahme
+- Kontext:
+- Status: Rohtranskript
+```
+
+(`Kontext:` bleibt als Platzhalter leer — für manuelle oder spätere LLM-Einordnung.)
+
+### Sonderfall: Audio vorher zusammenfügen
 
 ```bash
 # 1. Audio-Dateien aus Unterordnern zusammenfügen (Ordner nach processed/ verschieben)
@@ -100,7 +145,10 @@ python transcribe.py input --prompt "Fachbegriffe: Diktiergerät, Claude, Claude
 
 ### Audio-Dateien zusammenfügen (join_audio.py)
 
-Wenn dein Diktiergerät mehrere Dateien pro Aufnahme-Session erstellt (z.B. bei langen Pausen), kannst du diese vor der Transkription zusammenfügen.
+**Hinweis:** Seit Juni 2026 ist das Zusammenfügen vor der Transkription der **Sonderfall**,
+nicht mehr der Standard (Begründung: `docs/BUG-TRANSCRIBE-001.md` — im Sammeltranskript
+gehen Aufnahme-Grenzen und Zuordnung verloren). Nutze es nur, wenn die Aufnahmen bewusst
+eine zusammenhängende Einheit bilden sollen.
 
 **Standard-Komprimierung:** 64kbps Mono (optimal für Sprache, halbiert die Dateigröße).
 
@@ -187,6 +235,9 @@ Die fertigen Transkripte findest du in `output/` als `.md`-Dateien.
 | `--prompt` | Kontext-Prompt für bessere Erkennung |
 | `--no-replacements` | Standard-Ersetzungen deaktivieren |
 | `--no-markdown-title` | Markdown-Titel weglassen |
+| `--metadata-header` | Metadaten-Kopf je Transkript (Aufnahme-Nr., Datum, Modell, Quelle, Status) — für den Einzeldatei-Workflow |
+| `--merge-transcripts` | Je Quell-Unterordner zusätzlich ein Sammeltranskript (`<Ordnername>.md`) auf Textebene; Einzeltranskripte bleiben erhalten |
+| `--move-processed` | Quell-Unterordner nach fehlerfreiem Lauf nach `processed/` verschieben |
 | `--force` | Bereits transkribierte Dateien erneut verarbeiten |
 | `--correct` | Optionale LLM-Nachkorrektur über lokales Ollama/LM Studio aktivieren |
 | `--correct-backend` | `ollama` (Standard) oder `lmstudio` (setzt die Default-URL) |
@@ -297,7 +348,7 @@ CORRECTION_MODEL=llama3.1:8b
 CORRECTION_BASE_URL=http://localhost:11434/v1
 ```
 
-In der GUI gibt es dafür den Bereich **„LLM-Korrektur (lokal, optional)“** mit Checkbox,
+In der GUI gibt es dafür den Bereich **„LLM-Korrektur (lokal, optional)"** mit Checkbox,
 Backend-Dropdown und Modell-Feld.
 
 ### Modell-Empfehlung & Robustheit
