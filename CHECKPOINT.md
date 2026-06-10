@@ -1,7 +1,42 @@
 # Projekt-Checkpoint
 
-**Datum:** 1. Juni 2026 (ursprünglich: 7. Dezember 2024)
+**Datum:** 10. Juni 2026 (ursprünglich: 7. Dezember 2024)
 **Projekt:** Transkriptions-Prototyp (Diktiergerät → Text)
+
+## Update 10.06.2026 – Einzeldatei-Workflow als neuer Standard (BUG-TRANSCRIBE-001)
+
+Außerplanmäßige Einheit nach Bug-Report `docs/BUG-TRANSCRIBE-001.md`
+(Workflow-Designfehler: Audio-Zusammenfügen *vor* der Transkription verliert
+Aufnahme-Grenzen/Metadaten; Inhalt aus #264 war im Sammeltranskript #262–#264
+nicht auffindbar).
+
+- ✅ **`transcribe.py`:** `--metadata-header` (Metadaten-Kopf je Transkript:
+  Aufnahme-Nr. aus Dateiname, Datum aus Dateidatum, Modell, Quelle,
+  Kontext-Platzhalter, Status) und `--move-processed` (Quell-Unterordner nach
+  fehlerfreiem Lauf nach `processed/`; defensiv — bei Fehlern bleibt der Ordner
+  liegen). Ohne Flags unverändertes Verhalten (CLI-kompatibel).
+- ✅ **GUI:** Workflow-Modus-Schalter — „Einzeln transkribieren" (neuer
+  Standard) vs. „Vorher zusammenfügen" (Sonderfall, alter Ablauf). Im
+  Einzelmodus: Join-Button deaktiviert, „Kompletter Workflow" = nur
+  Transkription mit Metadaten-Kopf + optionalem `processed/`-Verschieben.
+  Modus wird in `gui_settings.json` persistiert.
+- ✅ **Sammeltranskript auf Textebene:** `--merge-transcripts` erstellt je
+  Quell-Unterordner zusätzlich `<Ordnername>.md` aus allen Einzeltranskripten
+  (inkl. Metadaten-Köpfen, sortiert nach Aufnahme-Nr.; Einzeltranskripte
+  bleiben erhalten; nur bei fehlerfreiem Ordner). GUI-Checkbox
+  „Sammeltranskript je Ordner erstellen" (Einzelmodus, Standard: an).
+- ✅ **Verifiziert:** Integrationstest mit Stub-Provider (Metadaten-Kopf,
+  Sammeltranskript inkl. Reihenfolge, Verschiebe-Logik, Root-Dateien bleiben
+  liegen, altes Verhalten ohne Flags unverändert) — 22/22 Prüfungen grün.
+- ✅ **A/B-Vergleich am echten Tagesmaterial** (`docs/VERGLEICH_WORKFLOW_2026-06-10.md`):
+  alter Weg verlor ~19 % Inhalt, alle Verluste an Split-Grenzen der gejointen
+  Datei. Nebenbefund: auch der neue Weg verliert ~45 Wörter an internen
+  Split-Grenzen bei Aufnahmen >23 Min.
+- 📋 **Offen (nächste Einheit, priorisiert):** **Überlapp-Splitting** —
+  Teildateien mit 10–15 s Überlappung schneiden und Nahtstellen textseitig
+  deduplizieren (alternativ Schnitt an Stille-Grenzen). Behebt den
+  Restverlust an Split-Grenzen. Danach: Tages-*Analyse* und *Übergabenotiz*
+  (LLM-gestützt) auf Basis des Sammeltranskripts.
 
 ## Update 01.06.2026 – Kostenoptimierung & Architektur
 
