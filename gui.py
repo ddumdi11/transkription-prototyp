@@ -13,9 +13,12 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+import merge_collect as mc
 
 # .env laden für API-Key Check
 load_dotenv()
@@ -55,7 +58,10 @@ class TranscriptionGUI:
         self.root.title("Transkriptions-Prototyp")
         # Fenstergröße wird nach dem Aufbau der Widgets gesetzt
         # (Inhaltshöhe messen bzw. gespeicherte Größe wiederherstellen).
-        self.root.minsize(640, 560)
+        # Notebook-tauglicher Mindestwert; Hauptbereich ist scrollbar, daher
+        # bleibt das Fenster auf jeder Bildschirmgröße frei verkleinerbar.
+        self.root.minsize(600, 440)
+        self.root.resizable(True, True)
 
         # Gespeicherte Einstellungen laden (oder leeres Dict).
         settings = self._load_settings()
@@ -88,6 +94,28 @@ class TranscriptionGUI:
         self._model_per_provider = dict(DEFAULT_MODEL_BY_PROVIDER)
         self._model_per_provider.update(settings.get("model_per_provider", {}))
         self.model = tk.StringVar(value=self._model_per_provider[provider])
+
+        # === Transkripte zusammenführen (separater Schritt) ===
+        # Arbeitet ausschließlich auf bereits gespeicherten .md-Transkripten.
+        _ms, _me = mc.default_month_range()
+        self.merge_enabled = tk.BooleanVar(value=settings.get("merge_enabled", False))
+        self.merge_source = tk.StringVar(
+            value=settings.get("merge_source", "") or self.output_folder.get())
+        self.merge_audio_dir = tk.StringVar(
+            value=settings.get("merge_audio_dir", "") or self.input_folder.get())
+        # Zeitraum: gespeicherte Werte nur übernehmen, wenn vorhanden — sonst
+        # Default = aktueller Monat (im Juni also 01.06.–30.06.).
+        self.merge_start = tk.StringVar(value=settings.get("merge_start", "") or _ms.isoformat())
+        self.merge_end = tk.StringVar(value=settings.get("merge_end", "") or _me.isoformat())
+        # Filter-Modus: "positive" (nur Treffer) / "negative" (alles außer Treffer).
+        mmode = settings.get("merge_filter_mode", "positive")
+        if mmode not in ("positive", "negative"):
+            mmode = "positive"
+        self.merge_filter_mode = tk.StringVar(value=mmode)
+        self.merge_pattern = tk.StringVar(value=settings.get("merge_pattern", "My*Cent*"))
+        self.merge_label = tk.StringVar(value=settings.get("merge_label", "MyCents"))
+        self.merge_write_index = tk.BooleanVar(
+            value=settings.get("merge_write_index", True))
 
         # Optionale LLM-Korrektur (lokal, abschaltbar).
         self.correct_enabled = tk.BooleanVar(value=settings.get("correct_enabled", False))
@@ -148,8 +176,12 @@ class TranscriptionGUI:
             self.root.geometry(saved)
             return
         self.root.update_idletasks()
-        width = max(self.root.winfo_reqwidth(), 700)
-        height = min(self.root.winfo_reqheight() + 20,
+        # Inhaltsgröße am Content-Frame messen (der Canvas propagiert sie nicht).
+        content = getattr(self, "_content_frame", None) or self.root
+        req_w = content.winfo_reqwidth()
+        req_h = content.winfo_reqheight()
+        width = max(req_w + 24, 700)            # + Platz für die Scrollbar
+        height = min(req_h + 24,
                      self.root.winfo_screenheight() - 80)
         self.root.geometry(f"{width}x{height}")
 
@@ -205,6 +237,15 @@ class TranscriptionGUI:
             "correct_enabled": self.correct_enabled.get(),
             "correct_backend": self._current_correct_backend(),
             "correct_model": self.correct_model.get(),
+            "merge_enabled": self.merge_enabled.get(),
+            "merge_source": self.merge_source.get(),
+            "merge_audio_dir": self.merge_audio_dir.get(),
+            "merge_start": self.merge_start.get(),
+            "merge_end": self.merge_end.get(),
+            "merge_filter_mode": self.merge_filter_mode.get(),
+            "merge_pattern": self.merge_pattern.get(),
+            "merge_label": self.merge_label.get(),
+            "merge_write_index": self.merge_write_index.get(),
             # Nur Breite x Höhe (ohne Position) merken — eine gespeicherte
             # Position könnte nach Monitorwechsel außerhalb des Sichtbaren liegen.
             "window_size": self.root.geometry().split("+")[0],
@@ -222,9 +263,38 @@ class TranscriptionGUI:
 
     def _create_widgets(self):
         """Erstellt alle GUI-Elemente."""
-        # Hauptcontainer mit Padding
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # Scrollbarer Hauptbereich: Canvas + vertikale Scrollbar, damit der
+        # gestapelte Inhalt auf kleinen Bildschirmen passt und die Fensterränder
+        # (samt Resize-Griff) erreichbar bleiben. (Vorlage: _show_preview_window.)
+        outer = ttk.Frame(self.root)
+        outer.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        vsb = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Hauptcontainer mit Padding liegt im Canvas.
+        main_frame = ttk.Frame(canvas, padding="10")
+        main_window = canvas.create_window((0, 0), window=main_frame, anchor="nw")
+        # Für _init_window_size: die Start-Fenstergröße orientiert sich an der
+        # Inhaltsgröße dieses Frames (der Canvas selbst propagiert sie nicht).
+        self._content_frame = main_frame
+        # Inhaltshöhe -> Scrollregion; innere Breite an die Canvas-Breite koppeln,
+        # damit fill=X-Bereiche (Dropdowns, Buttons) die volle Breite nutzen.
+        main_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind(
+            "<Configure>",
+            lambda e: canvas.itemconfigure(main_window, width=e.width))
+
+        # Mausrad nur scrollen, wenn der Cursor über dem Bereich ist
+        # (sonst würde es die Dropdown-Bedienung stören).
+        def _wheel(event):
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
         # === Ordner-Einstellungen ===
         folder_frame = ttk.LabelFrame(main_frame, text="Ordner", padding="10")
@@ -419,6 +489,9 @@ class TranscriptionGUI:
         # Korrektur-Felder passend zum Checkbox-Status aktivieren/deaktivieren.
         self._on_correct_toggle()
 
+        # === Transkripte zusammenführen (separat) ===
+        self._create_merge_widgets(main_frame)
+
         # === Log-Ausgabe ===
         log_frame = ttk.LabelFrame(main_frame, text="Ausgabe", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True)
@@ -520,8 +593,8 @@ class TranscriptionGUI:
                     self.root.after(0, lambda: self._log(f"\n✖ {description} fehlgeschlagen (Code: {process.returncode})\n"))
                     self.root.after(0, lambda: self.status_var.set("Fehler aufgetreten"))
 
-            except Exception as e:
-                self.root.after(0, lambda: self._log(f"\n✖ Fehler: {e}\n"))
+            except Exception as exc:
+                self.root.after(0, lambda e=exc: self._log(f"\n✖ Fehler: {e}\n"))
                 self.root.after(0, lambda: self.status_var.set("Fehler aufgetreten"))
 
             finally:
@@ -620,6 +693,281 @@ class TranscriptionGUI:
 
         # Nach dem Join -> Transcribe starten
         self._run_command(cmd, "Audio zusammenfügen", callback=self._transcribe)
+
+    # ------------------------------------------------------------------
+    # Transkripte zusammenführen (separater Schritt, eigenes Untermenü)
+    # ------------------------------------------------------------------
+    def _create_merge_widgets(self, parent):
+        """Checkbox + (ein-/ausblendbares) Untermenü für die Zusammenführung."""
+        frame = ttk.LabelFrame(
+            parent, text="Transkripte zusammenführen (separat)", padding="10")
+        frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Checkbutton(
+            frame,
+            text="Aktivieren — aus bereits gespeicherten Transkripten ein "
+                 "Sammel-Markdown erstellen",
+            variable=self.merge_enabled,
+            command=self._on_merge_toggle,
+        ).pack(anchor=tk.W)
+
+        # Untermenü: nur sichtbar, wenn die Checkbox aktiv ist.
+        self.merge_panel = ttk.Frame(frame, padding=(0, 8, 0, 0))
+
+        grid = ttk.Frame(self.merge_panel)
+        grid.pack(fill=tk.X)
+        ttk.Label(grid, text="Transkript-Ordner:").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 5), pady=2)
+        ttk.Entry(grid, textvariable=self.merge_source, width=38).grid(
+            row=0, column=1, sticky=tk.EW, pady=2)
+        ttk.Button(grid, text="...", width=3,
+                   command=self._browse_merge_source).grid(row=0, column=2, padx=(5, 0))
+
+        ttk.Label(grid, text="Audio-Ordner (Datumsprüfung):").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 5), pady=2)
+        ttk.Entry(grid, textvariable=self.merge_audio_dir, width=38).grid(
+            row=1, column=1, sticky=tk.EW, pady=2)
+        ttk.Button(grid, text="...", width=3,
+                   command=self._browse_merge_audio).grid(row=1, column=2, padx=(5, 0))
+        grid.columnconfigure(1, weight=1)
+
+        period = ttk.Frame(self.merge_panel)
+        period.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(period, text="Zeitraum von:").pack(side=tk.LEFT)
+        ttk.Entry(period, textvariable=self.merge_start, width=12).pack(
+            side=tk.LEFT, padx=(5, 10))
+        ttk.Label(period, text="bis:").pack(side=tk.LEFT)
+        ttk.Entry(period, textvariable=self.merge_end, width=12).pack(
+            side=tk.LEFT, padx=(5, 10))
+        ttk.Label(period, text="(JJJJ-MM-TT)", foreground="gray").pack(side=tk.LEFT)
+
+        filt = ttk.Frame(self.merge_panel)
+        filt.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(filt, text="Filter:").pack(side=tk.LEFT)
+        ttk.Radiobutton(filt, text="Positiv (nur Treffer)", value="positive",
+                        variable=self.merge_filter_mode).pack(side=tk.LEFT, padx=(5, 8))
+        ttk.Radiobutton(filt, text="Negativ (alles außer Treffer)", value="negative",
+                        variable=self.merge_filter_mode).pack(side=tk.LEFT)
+
+        pat = ttk.Frame(self.merge_panel)
+        pat.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(pat, text="Muster:").pack(side=tk.LEFT)
+        ttk.Entry(pat, textvariable=self.merge_pattern).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        ttk.Label(
+            self.merge_panel,
+            text="z. B. My*Cent*  — Platzhalter * und ?; mehrere Muster mit ; trennen",
+            foreground="gray",
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        name = ttk.Frame(self.merge_panel)
+        name.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(name, text="Name/Label:").pack(side=tk.LEFT)
+        ttk.Entry(name, textvariable=self.merge_label, width=24).pack(
+            side=tk.LEFT, padx=(5, 10))
+        ttk.Checkbutton(name, text="separaten Quellenindex schreiben",
+                        variable=self.merge_write_index).pack(side=tk.LEFT)
+
+        ttk.Button(self.merge_panel, text="Vorschau / Auswahl…",
+                   command=self._open_merge_preview,
+                   style="Action.TButton").pack(anchor=tk.W, pady=(8, 0))
+
+        self._on_merge_toggle()
+
+    def _on_merge_toggle(self):
+        """Untermenü ein-/ausblenden je nach Checkbox."""
+        if self.merge_enabled.get():
+            self.merge_panel.pack(fill=tk.X)
+        else:
+            self.merge_panel.pack_forget()
+
+    def _browse_merge_source(self):
+        folder = filedialog.askdirectory(initialdir=self.merge_source.get() or ".")
+        if folder:
+            self.merge_source.set(folder)
+
+    def _browse_merge_audio(self):
+        folder = filedialog.askdirectory(initialdir=self.merge_audio_dir.get() or ".")
+        if folder:
+            self.merge_audio_dir.set(folder)
+
+    def _parse_date_field(self, var: tk.StringVar, label: str):
+        """Liest ein JJJJ-MM-TT-Feld; zeigt bei Fehler eine Meldung und gibt None."""
+        try:
+            return date.fromisoformat(var.get().strip())
+        except ValueError:
+            messagebox.showerror(
+                "Ungültiges Datum", f"{label} bitte als JJJJ-MM-TT angeben.")
+            return None
+
+    def _open_merge_preview(self):
+        """Scannt Kandidaten und öffnet das Vorschau-/Auswahlfenster."""
+        source = Path(self.merge_source.get())
+        if not source.exists():
+            messagebox.showerror(
+                "Fehler", f"Transkript-Ordner existiert nicht:\n{source}")
+            return
+        start = self._parse_date_field(self.merge_start, "Zeitraum von")
+        if start is None:
+            return
+        end = self._parse_date_field(self.merge_end, "Zeitraum bis")
+        if end is None:
+            return
+        if start > end:
+            messagebox.showerror("Fehler", "'von' liegt nach 'bis'.")
+            return
+
+        negative = self.merge_filter_mode.get() == "negative"
+        pattern = self.merge_pattern.get().strip()
+        if negative and not pattern:
+            messagebox.showwarning(
+                "Filter", "Der Negativ-Filter benötigt ein Muster "
+                "(sonst würde alles ausgeschlossen).")
+            return
+
+        audio_dirs = []
+        ad = self.merge_audio_dir.get().strip()
+        if ad and Path(ad).exists():
+            audio_dirs.append(Path(ad))
+
+        candidates = mc.scan_candidates(
+            source, pattern, negative, start, end, audio_dirs)
+        if not candidates:
+            messagebox.showinfo(
+                "Keine Treffer", "Keine Transkripte passen zum Namensfilter.")
+            return
+        self._show_preview_window(candidates, start, end, negative, pattern)
+
+    def _show_preview_window(self, candidates, start, end, negative, pattern):
+        """Zeigt die Kandidatenliste mit einzeln abwählbaren Checkboxen."""
+        win = tk.Toplevel(self.root)
+        win.title("Vorschau — Transkripte zusammenführen")
+        win.geometry("800x580")
+        win.transient(self.root)
+
+        # Dateien außerhalb des Zeitraums sind standardmäßig ausgeblendet.
+        show_out_of_range = tk.BooleanVar(value=False)
+
+        info = ttk.Frame(win, padding=10)
+        info.pack(fill=tk.X)
+        mode_text = "Negativ" if negative else "Positiv"
+        in_range = sum(c.in_range for c in candidates)
+        conflicts = sum(c.conflict for c in candidates)
+        ttk.Label(info, text=(
+            f"Zeitraum {start.isoformat()} – {end.isoformat()}   |   "
+            f"Filter {mode_text} '{pattern or '—'}'   |   "
+            f"{len(candidates)} Treffer · {in_range} im Zeitraum · "
+            f"{conflicts} mit ⚠ Datums-Konflikt")).pack(anchor=tk.W)
+        ttk.Label(info, text=(
+            "Vorausgewählt sind die Dateien im Zeitraum. Haken anpassen, um "
+            "einzelne ab- oder zusätzlich auszuwählen."),
+            foreground="gray").pack(anchor=tk.W, pady=(2, 0))
+
+        body = ttk.Frame(win)
+        body.pack(fill=tk.BOTH, expand=True, padx=10)
+        canvas = tk.Canvas(body, highlightthickness=0)
+        sb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _wheel(event):
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        # Pro Kandidat den Checkbutton EINMAL bauen und (widget, var, candidate)
+        # merken. Die per-Datei-Variable bleibt erhalten, damit die Auswahl beim
+        # Ein-/Ausblenden nicht verloren geht. Das tatsächliche Packen übernimmt
+        # refresh_visibility().
+        rows = []
+        for c in candidates:
+            v = tk.BooleanVar(value=c.selected)
+            fdate = c.filter_date.isoformat() if c.filter_date else "ohne Datum"
+            if c.conflict:
+                tail = "   ⚠ " + c.note
+            elif c.note:
+                tail = f"   ({c.note})"
+            else:
+                tail = ""
+            rng = "" if c.in_range else "   [außerhalb Zeitraum]"
+            text = f"{c.name}      {fdate} [{c.date_source}]{rng}{tail}"
+            cb = ttk.Checkbutton(inner, text=text, variable=v)
+            rows.append((cb, v, c))
+
+        def _visible(c):
+            return c.in_range or show_out_of_range.get()
+
+        def refresh_visibility():
+            # Erst alle lösen, dann sichtbare in Reihenfolge packen -> behält die
+            # ursprüngliche Sortierung auch nach dem Einblenden bei.
+            for w, _v, _c in rows:
+                w.pack_forget()
+            for w, _v, c in rows:
+                if _visible(c):
+                    w.pack(anchor=tk.W, pady=1)
+            inner.update_idletasks()
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.yview_moveto(0)
+
+        # Info-Zeile: Schalter zum Einblenden der Out-of-range-Dateien.
+        ttk.Checkbutton(
+            info, text="Auch Dateien außerhalb des Zeitraums anzeigen",
+            variable=show_out_of_range, command=refresh_visibility).pack(
+                anchor=tk.W, pady=(4, 0))
+
+        refresh_visibility()
+
+        btns = ttk.Frame(win, padding=10)
+        btns.pack(fill=tk.X)
+        # "Alle"/"Keine" wirken nur auf aktuell SICHTBARE Zeilen, damit
+        # versteckte Out-of-range-Dateien nicht ungewollt mitausgewählt werden.
+        ttk.Button(btns, text="Alle",
+                   command=lambda: [v.set(True) for w, v, c in rows if _visible(c)]
+                   ).pack(side=tk.LEFT)
+        ttk.Button(btns, text="Keine",
+                   command=lambda: [v.set(False) for w, v, c in rows if _visible(c)]
+                   ).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Button(btns, text="Nur Zeitraum",
+                   command=lambda: [v.set(c.in_range) for w, v, c in rows]).pack(
+                       side=tk.LEFT, padx=(5, 0))
+
+        def do_merge():
+            chosen = [c for w, v, c in rows if v.get()]
+            if not chosen:
+                messagebox.showwarning(
+                    "Auswahl leer", "Es ist keine Datei ausgewählt.", parent=win)
+                return
+            self._run_merge(chosen, start, end, negative, pattern, win)
+
+        ttk.Button(btns, text="Zusammenführen", command=do_merge,
+                   style="Primary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btns, text="Abbrechen", command=win.destroy).pack(
+            side=tk.RIGHT, padx=(0, 5))
+
+    def _run_merge(self, chosen, start, end, negative, pattern, win):
+        """Schreibt Konsolidat (+ optional Quellenindex) in den Transkript-Ordner."""
+        out_dir = Path(self.merge_source.get())
+        label = self.merge_label.get().strip() or "Transkripte"
+        mode_text = "Negativ" if negative else "Positiv"
+        try:
+            cons, idx = mc.write_consolidation(
+                chosen, out_dir, label, start, end, mode_text, pattern,
+                write_index=self.merge_write_index.get())
+        except OSError as exc:
+            messagebox.showerror("Fehler beim Schreiben", str(exc), parent=win)
+            return
+        win.destroy()
+        self._log(f"\n✔ Konsolidat erstellt: {cons} ({len(chosen)} Quellen)")
+        msg = f"Konsolidat erstellt:\n{cons.name}\n({len(chosen)} Quellen)"
+        if idx:
+            self._log(f"  Quellenindex: {idx}")
+            msg += f"\n\nQuellenindex:\n{idx.name}"
+        messagebox.showinfo("Fertig", msg)
 
 
 def main():
