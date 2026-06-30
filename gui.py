@@ -553,6 +553,10 @@ class TranscriptionGUI:
             self.join_btn.config(state=state)
         self.transcribe_btn.config(state=state)
         self.workflow_btn.config(state=state)
+        # Merge-Vorschau während laufender Transkription sperren (es werden
+        # gerade .md-Dateien geschrieben). Button existiert erst nach Aufbau.
+        if hasattr(self, "merge_preview_btn"):
+            self.merge_preview_btn.config(state=state)
 
     def _run_command(self, cmd: list[str], description: str, callback=None):
         """Führt einen Befehl im Hintergrund aus."""
@@ -768,9 +772,10 @@ class TranscriptionGUI:
         ttk.Checkbutton(name, text="separaten Quellenindex schreiben",
                         variable=self.merge_write_index).pack(side=tk.LEFT)
 
-        ttk.Button(self.merge_panel, text="Vorschau / Auswahl…",
-                   command=self._open_merge_preview,
-                   style="Action.TButton").pack(anchor=tk.W, pady=(8, 0))
+        self.merge_preview_btn = ttk.Button(
+            self.merge_panel, text="Vorschau / Auswahl…",
+            command=self._open_merge_preview, style="Action.TButton")
+        self.merge_preview_btn.pack(anchor=tk.W, pady=(8, 0))
 
         self._on_merge_toggle()
 
@@ -802,10 +807,20 @@ class TranscriptionGUI:
 
     def _open_merge_preview(self):
         """Scannt Kandidaten und öffnet das Vorschau-/Auswahlfenster."""
-        source = Path(self.merge_source.get())
-        if not source.exists():
+        # Nicht während einer laufenden Transkription mergen (es werden gerade
+        # .md-Dateien geschrieben -> inkonsistenter/partieller Stand).
+        if self.running_process is not None:
+            messagebox.showinfo(
+                "Bitte warten",
+                "Während einer laufenden Transkription ist das Zusammenführen "
+                "deaktiviert. Bitte warte, bis sie abgeschlossen ist.")
+            return
+        src_raw = self.merge_source.get().strip()
+        source = Path(src_raw)
+        if not src_raw or not source.is_dir():
             messagebox.showerror(
-                "Fehler", f"Transkript-Ordner existiert nicht:\n{source}")
+                "Fehler",
+                f"Transkript-Ordner ist kein gültiger Ordner:\n{src_raw or '(leer)'}")
             return
         start = self._parse_date_field(self.merge_start, "Zeitraum von")
         if start is None:
@@ -827,8 +842,16 @@ class TranscriptionGUI:
 
         audio_dirs = []
         ad = self.merge_audio_dir.get().strip()
-        if ad and Path(ad).exists():
-            audio_dirs.append(Path(ad))
+        if ad:
+            adp = Path(ad)
+            if not adp.is_dir():
+                messagebox.showwarning(
+                    "Audio-Ordner",
+                    f"Audio-Ordner existiert nicht:\n{ad}\n\nBitte korrigieren "
+                    "oder das Feld leeren (ohne Audio-Ordner entfällt nur die "
+                    "Datums-Plausibilitätsprüfung).")
+                return
+            audio_dirs.append(adp)
 
         candidates = mc.scan_candidates(
             source, pattern, negative, start, end, audio_dirs)
@@ -951,6 +974,13 @@ class TranscriptionGUI:
 
     def _run_merge(self, chosen, start, end, negative, pattern, win):
         """Schreibt Konsolidat (+ optional Quellenindex) in den Transkript-Ordner."""
+        # Falls inzwischen eine Transkription läuft: nicht gleichzeitig schreiben.
+        if self.running_process is not None:
+            messagebox.showinfo(
+                "Bitte warten",
+                "Während einer laufenden Transkription ist das Zusammenführen "
+                "deaktiviert.", parent=win)
+            return
         out_dir = Path(self.merge_source.get())
         label = self.merge_label.get().strip() or "Transkripte"
         mode_text = "Negativ" if negative else "Positiv"

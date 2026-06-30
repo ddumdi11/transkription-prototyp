@@ -66,6 +66,10 @@ c2 = mc.Candidate(path=Path("x.md"), filename_date=date(2026, 5, 6),
 check("kein conflict bei Gleichheit", mc._detect_conflict(c2), False)
 c3 = mc.Candidate(path=Path("x.md"), filename_date=date(2026, 5, 6))
 check("kein conflict bei nur 1 Datum", mc._detect_conflict(c3), False)
+# Audio-mtime ist fragil -> darf keinen Konflikt auslösen, wenn Name == Header.
+c5 = mc.Candidate(path=Path("x.md"), filename_date=date(2026, 5, 6),
+                  header_date=date(2026, 5, 6), audio_date=date(2026, 5, 20))
+check("Audio-mtime loest keinen Konflikt aus", mc._detect_conflict(c5), False)
 
 # --- Filter-Datum-Priorität ----------------------------------------------
 c4 = mc.Candidate(path=Path("x.md"), header_date=date(2026, 5, 7),
@@ -91,15 +95,32 @@ check("basename ein Monat", mc.default_basename("MyCents", date(2026, 6, 1), dat
 # --- End-to-End: Ausgabe-Dateinamen (kein doppeltes Label im Index) -------
 with tempfile.TemporaryDirectory() as td:
     tdp = Path(td)
-    (tdp / "My_Cents_2026-05-06.md").write_text("# x\n\nText", encoding="utf-8")
+    (tdp / "My_Cents_2026-05-06.md").write_text(
+        "# x\n\nText eins zwei drei", encoding="utf-8")
+    # Vorheriges Ausgabe-Artefakt: darf NICHT erneut als Quelle auftauchen.
+    (tdp / "Konsolidat_MyCents_2026-04.md").write_text("# alt", encoding="utf-8")
+
     cands = mc.scan_candidates(tdp, "My*Cent*", False,
                                date(2026, 5, 1), date(2026, 5, 31), [])
+    # Scan findet genau die eine echte Quelle (Artefakt ausgeschlossen).
+    check("scan findet genau 1 Quelle", len(cands), 1)
+    check("Artefakt ausgeschlossen", any(c.name.startswith("Konsolidat_") for c in cands), False)
+
     cons, idx = mc.write_consolidation(
         cands, tdp, "MyCents", date(2026, 5, 1), date(2026, 5, 31),
         "Positiv", "My*Cent*", write_index=True)
     check("Konsolidat-Name", cons.name, "Konsolidat_MyCents_2026-05.md")
+    assert idx is not None, "write_index=True muss einen Quellenindex liefern"
     check("Quellenindex-Name (kein doppeltes Label)", idx.name,
           "Quellenindex_MyCents_2026-05.md")
+
+    # Inhalt prüfen: Quelle referenziert UND Rohtext übernommen.
+    cons_text = cons.read_text(encoding="utf-8")
+    check("Konsolidat referenziert Quelle",
+          "My_Cents_2026-05-06.md" in cons_text, True)
+    check("Konsolidat enthält Rohtext", "Text eins zwei drei" in cons_text, True)
+    check("Quellenindex listet Quelle",
+          "My_Cents_2026-05-06.md" in idx.read_text(encoding="utf-8"), True)
 
 print()
 if fails:

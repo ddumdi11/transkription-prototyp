@@ -239,13 +239,16 @@ def _pick_filter_date(c: Candidate) -> tuple[date | None, str]:
 
 def _detect_conflict(c: Candidate) -> bool:
     """
-    Konflikt, wenn sich die 'echten' Aufnahmedaten widersprechen
-    (Dateiname / Header / Audio). Die .md-mtime ist die Erstellzeit des
-    Transkripts und wird hier bewusst NICHT als Konfliktquelle gewertet.
+    Konflikt nur, wenn sich Dateiname- und Header-Datum widersprechen.
+
+    Das Audio-Datum stammt aus der Datei-mtime und ist fragil (Kopieren/
+    Wiederherstellen der Audiodatei ändert die mtime) — es wird daher NICHT
+    als Konfliktquelle gewertet, sondern nur als weicher Hinweis (siehe
+    build_candidate). Die .md-mtime zählt ebenfalls nicht als Konflikt.
     """
-    known = [d for d in (c.filename_date, c.header_date, c.audio_date)
-             if d is not None]
-    return len(known) >= 2 and len(set(known)) > 1
+    if c.filename_date and c.header_date:
+        return c.filename_date != c.header_date
+    return False
 
 
 def build_candidate(path: Path, search_dirs: list[Path]) -> Candidate:
@@ -271,11 +274,15 @@ def build_candidate(path: Path, search_dirs: list[Path]) -> Candidate:
             parts.append(f"Name {c.filename_date.isoformat()}")
         if c.header_date:
             parts.append(f"Header {c.header_date.isoformat()}")
-        if c.audio_date:
-            parts.append(f"Audio {c.audio_date.isoformat()}")
         c.note = "Datums-Konflikt: " + ", ".join(parts)
-    elif c.filter_date is None:
-        c.note = "kein Datum erkennbar"
+    else:
+        # Audio-mtime nur als weicher Hinweis (kein Konflikt), wenn sie vom
+        # maßgeblichen Datum (Name bzw. Header) abweicht.
+        ref = c.filename_date or c.header_date
+        if c.audio_date and ref and c.audio_date != ref:
+            c.note = f"Hinweis: Audio-Datei-Datum {c.audio_date.isoformat()} weicht ab"
+        elif c.filter_date is None:
+            c.note = "kein Datum erkennbar"
     return c
 
 
@@ -299,7 +306,7 @@ def scan_candidates(
     """
     source_dir = Path(source_dir)
     patterns = split_patterns(raw_patterns)
-    search_dirs = [source_dir] + list(audio_dirs or [])
+    search_dirs = [source_dir, *(audio_dirs or [])]
 
     files = (source_dir.rglob("*.md") if recursive
              else source_dir.glob("*.md"))
@@ -307,6 +314,11 @@ def scan_candidates(
     result: list[Candidate] = []
     for p in sorted(files):
         if not p.is_file():
+            continue
+        # Eigene Ausgabe-Artefakte nicht als Quelle aufnehmen — sonst zieht eine
+        # erneute Vorschau das vorherige Konsolidat/den Quellenindex mit ein
+        # (besonders bei breitem/leerem Muster).
+        if p.name.startswith(("Konsolidat_", "Quellenindex_")):
             continue
         hit = matches_patterns(p.name, patterns) if patterns else True
         # Ohne Muster: alle Dateien. Negativ-Filter ohne Muster wäre sinnlos.
