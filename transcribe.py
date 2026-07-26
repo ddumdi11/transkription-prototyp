@@ -536,6 +536,18 @@ def main():
                         output_dir / (audio.stem + args.suffix))
                 continue
 
+            # Leere (0-Byte-)Datei früh und klar melden statt kryptischem
+            # ffmpeg-Fehler ("Invalid data found when processing input").
+            # Entsteht z. B. bei einer abgebrochenen Kopie. Bewusst als Fehler
+            # (nicht "übersprungen") behandelt: die bestehende Fehlerbehandlung
+            # weiter unten zählt es als Fehler, unterdrückt das Sammeltranskript
+            # und verhindert das Verschieben nach processed/ — so rutscht eine
+            # fehlende Aufnahme nicht unbemerkt durch.
+            if audio.stat().st_size == 0:
+                raise ValueError(
+                    "Datei ist leer (0 Bytes) — vermutlich unvollständige "
+                    "Kopie, bitte erneut kopieren")
+
             # Prüfen ob Datei zu groß ODER zu lang ist und ggf. splitten.
             # Splitting nur, wenn der Provider überhaupt eine Grenze hat
             # (lokale Engines haben keine -> kein Splitting nötig).
