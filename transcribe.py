@@ -526,6 +526,19 @@ def main():
     for audio in audio_files:
         src_folder = top_level_subfolder(audio, input_path) if input_is_dir else None
         try:
+            # Leere (0-Byte-)Datei ZUERST prüfen — noch vor dem Skip bei
+            # vorhandenem Transkript. Sonst würde eine 0-Byte-Datei (z. B.
+            # abgebrochene Kopie) hinter einem veralteten Transkript als
+            # "übersprungen" gewertet und könnte per --move-processed unbemerkt
+            # nach processed/ wandern. Klarere Meldung statt kryptischem
+            # ffmpeg-Fehler ("Invalid data found when processing input");
+            # bleibt ein Fehler (kein Skip, kein Sammeltranskript, kein
+            # Verschieben).
+            if audio.stat().st_size == 0:
+                raise ValueError(
+                    "Datei ist leer (0 Bytes) — vermutlich unvollständige "
+                    "Kopie, bitte erneut kopieren")
+
             # Prüfen ob bereits transkribiert
             if not args.force and transcript_exists(audio, output_dir, args.suffix):
                 print(f"[SKIP] Ueberspringe (bereits vorhanden): {audio.name}")
