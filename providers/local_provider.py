@@ -24,7 +24,12 @@ class LocalWhisperProvider(TranscriptionProvider):
     name = "local"
 
     def __init__(self, model_size: str | None = None, device: str = "auto",
-                 compute_type: str = "auto", vad_filter: bool = True):
+                 compute_type: str = "auto", vad_filter: bool = True,
+                 condition_on_previous_text: bool = True,
+                 repetition_penalty: float = 1.0,
+                 compression_ratio_threshold: float = 2.4,
+                 temperature: float | list[float] | tuple[float, ...] = (
+                     0.0, 0.2, 0.4, 0.6, 0.8, 1.0)):
         if WhisperModel is None:
             raise RuntimeError(
                 "Lokale Transkription benötigt faster-whisper: "
@@ -38,6 +43,28 @@ class LocalWhisperProvider(TranscriptionProvider):
         # Transkription heraus. Reduziert Whisper-Wiederholungsartefakte auf
         # stummen/verrauschten Passagen. Default an, abschaltbar.
         self.vad_filter = vad_filter
+
+        # Decoder-Parameter gegen Loops (Decoder-Wiederholungsschleifen).
+        # Defaults = faster-whisper-Defaults, d. h. das bisherige Verhalten
+        # bleibt unveraendert, bis der Aufrufer bewusst abweicht.
+        #
+        # - condition_on_previous_text: konditioniert die naechste Passage auf
+        #   den bisher erzeugten Text. Whispers Default True ist die
+        #   Hauptursache fuer Loops (Modell konditioniert auf eigenen Output);
+        #   False durchbricht die Schleife, kann aber Kontext/Kohaerenz kosten.
+        # - repetition_penalty: >1.0 bestraft Token-Wiederholung sanft.
+        # - compression_ratio_threshold: erkennt entartete (stark komprimier-
+        #   bare) Ausgaben und erzwingt einen Neu-Dekodier-Versuch.
+        # - temperature: Fallback-Temperaturen bei Ausfall der Qualitaets-
+        #   heuristiken; skalar oder Liste.
+        #
+        # BEWUSST NICHT hier: no_repeat_ngram_size. Der Sprecher wiederholt
+        # sich absichtlich; ein harter n-Gramm-Block wuerde echte Inhalte
+        # zerstoeren.
+        self.condition_on_previous_text = condition_on_previous_text
+        self.repetition_penalty = repetition_penalty
+        self.compression_ratio_threshold = compression_ratio_threshold
+        self.temperature = temperature
 
         # device="auto": CUDA falls verfügbar, sonst CPU.
         # Beim ersten Lauf werden die Modellgewichte heruntergeladen.
@@ -64,5 +91,9 @@ class LocalWhisperProvider(TranscriptionProvider):
             language=language,
             initial_prompt=prompt,  # Pendant zum OpenAI-prompt
             vad_filter=self.vad_filter,
+            condition_on_previous_text=self.condition_on_previous_text,
+            repetition_penalty=self.repetition_penalty,
+            compression_ratio_threshold=self.compression_ratio_threshold,
+            temperature=self.temperature,
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
