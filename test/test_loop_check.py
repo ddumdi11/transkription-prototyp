@@ -81,6 +81,22 @@ with tempfile.TemporaryDirectory() as d:
     f.write_text("# T\n\n" + clean, encoding="utf-8")
     check("loops_in_file: sauber -> leer", loops_in_file(f, 3, 3), [])
 
+# --- Grenzfall Phrasenlaenge: max_len kappt lange Phrasen -------------------
+w12 = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+w13 = w12 + " nu"
+t12 = (w12 + " ") * 3
+t13 = (w13 + " ") * 3
+
+b12 = [r for r in find_repeats(t12) if r["count"] >= 3]        # Default max_len=12
+check("12-Wort-Phrase (<=max) erkannt", len(b12), 1)
+check("12-Wort-Phrasenlaenge", b12[0]["unit_words"], 12)
+
+b13_default = [r for r in find_repeats(t13) if r["count"] >= 3]  # 13 > max_len 12
+check("13-Wort-Phrase bei max_len=12 NICHT erkannt", b13_default, [])
+b13_wide = [r for r in find_repeats(t13, max_len=13) if r["count"] >= 3]
+check("13-Wort-Phrase bei max_len=13 erkannt", len(b13_wide), 1)
+check("13-Wort-Phrasenlaenge", b13_wide[0]["unit_words"], 13)
+
 print()
 if fails:
     print(f"FEHLGESCHLAGEN: {fails} Pruefung(en).")

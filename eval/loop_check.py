@@ -26,8 +26,9 @@ from pathlib import Path
 
 # Standard-Schwellen fuer einen "echten" Loop (statt normaler Floskeln wie
 # "ja ja ja" oder einer einmaligen Selbstkorrektur):
-DEFAULT_MIN_WORDS = 3   # Phrasenlaenge in Woertern (schliesst 1-2-Wort-Floskeln aus)
-DEFAULT_MIN_COUNT = 3   # Anzahl aufeinanderfolgender Vorkommen
+DEFAULT_MIN_WORDS = 3    # Phrasenlaenge in Woertern (schliesst 1-2-Wort-Floskeln aus)
+DEFAULT_MIN_COUNT = 3    # Anzahl aufeinanderfolgender Vorkommen
+DEFAULT_MAX_WORDS = 12   # obere Grenze der betrachteten Phrasenlaenge
 
 # Metadaten-Kopf / Markdown-Titel / Sammel-Trenner aus dem Body entfernen.
 _HEADER_LINE = re.compile(r"^\s*(#.*|-\s*\w+:.*|---+)\s*$")
@@ -39,7 +40,7 @@ def strip_header(md_text: str) -> str:
     return " ".join(ln for ln in lines if not _HEADER_LINE.match(ln))
 
 
-def find_repeats(text: str, max_len: int = 12) -> list[dict]:
+def find_repeats(text: str, max_len: int = DEFAULT_MAX_WORDS) -> list[dict]:
     """Alle unmittelbaren Wiederholungsbloecke im Text.
 
     Greedy: an jeder Position die laengste Phrase L (<=max_len Woerter)
@@ -75,7 +76,7 @@ def find_repeats(text: str, max_len: int = 12) -> list[dict]:
     return out
 
 
-def phrase_repetition(text: str, max_len: int = 12) -> dict:
+def phrase_repetition(text: str, max_len: int = DEFAULT_MAX_WORDS) -> dict:
     """Zusammenfassung der Wort-Loop-Redundanz eines Textes.
 
     Rueckgabe: dict(redundant_words, total_words, ratio, top_phrase,
@@ -96,17 +97,19 @@ def phrase_repetition(text: str, max_len: int = 12) -> dict:
     )
 
 
-def loops_in_file(md: Path, min_words: int, min_count: int) -> list[dict]:
+def loops_in_file(md: Path, min_words: int, min_count: int,
+                  max_words: int = DEFAULT_MAX_WORDS) -> list[dict]:
     """Echte Loop-Bloecke einer Transkriptdatei (ueber den Schwellen)."""
     body = strip_header(md.read_text(encoding="utf-8", errors="replace"))
-    reps = [r for r in find_repeats(body)
+    reps = [r for r in find_repeats(body, max_len=max_words)
             if r["unit_words"] >= min_words and r["count"] >= min_count]
     reps.sort(key=lambda r: (-r["count"], -r["unit_words"]))
     return reps
 
 
-def _report_file(md: Path, min_words: int, min_count: int) -> int:
-    reps = loops_in_file(md, min_words, min_count)
+def _report_file(md: Path, min_words: int, min_count: int,
+                 max_words: int = DEFAULT_MAX_WORDS) -> int:
+    reps = loops_in_file(md, min_words, min_count, max_words)
     if reps:
         print(f"* {md.name}")
         for r in reps:
@@ -126,17 +129,32 @@ def main() -> None:
                     help=f"Mindest-Phrasenlaenge in Woertern (Default {DEFAULT_MIN_WORDS}).")
     ap.add_argument("--min-count", type=int, default=DEFAULT_MIN_COUNT,
                     help=f"Mindest-Wiederholungen (Default {DEFAULT_MIN_COUNT}).")
+    ap.add_argument("--max-words", type=int, default=DEFAULT_MAX_WORDS,
+                    help=f"Obere Grenze der Phrasenlaenge (Default {DEFAULT_MAX_WORDS}). "
+                         "Phrasen laenger als dieser Wert werden nicht erkannt.")
     args = ap.parse_args()
+
+    # Ohne diese Pruefung liefert z. B. --min-words 13 (bei --max-words 12)
+    # stillschweigend NIE einen Treffer.
+    if not (1 <= args.min_words <= args.max_words):
+        ap.error(f"--min-words ({args.min_words}) muss zwischen 1 und "
+                 f"--max-words ({args.max_words}) liegen.")
+    if args.min_count < 2:
+        ap.error(f"--min-count ({args.min_count}) muss >= 2 sein.")
 
     target = Path(args.target).expanduser()
     if args.scan:
+        if not target.is_dir():
+            ap.error(f"--scan erwartet einen existierenden Ordner: {target}")
         files = sorted(target.glob("*.md"))
-        flagged = [(md, loops_in_file(md, args.min_words, args.min_count))
+        flagged = [(md, loops_in_file(md, args.min_words, args.min_count,
+                                      args.max_words))
                    for md in files]
         flagged = [(md, r) for md, r in flagged if r]
         flagged.sort(key=lambda t: -max(r["count"] for r in t[1]))
         print(f"Gescannt: {len(files)} Dateien in {target} "
-              f"(Schwelle: >={args.min_words} Woerter, >={args.min_count}x)")
+              f"(Schwelle: {args.min_words}-{args.max_words} Woerter, "
+              f">={args.min_count}x)")
         print(f"Mit Loop-Befund: {len(flagged)}\n")
         for md, reps in flagged:
             print(f"* {md.name}")
@@ -147,10 +165,11 @@ def main() -> None:
         if not target.is_file():
             print(f"[X] Datei nicht gefunden: {target}")
             raise SystemExit(1)
-        n = _report_file(target, args.min_words, args.min_count)
+        n = _report_file(target, args.min_words, args.min_count, args.max_words)
         if not n:
             print(f"{target.name}: kein Loop ueber den Schwellen "
-                  f"(>={args.min_words} Woerter, >={args.min_count}x).")
+                  f"({args.min_words}-{args.max_words} Woerter, "
+                  f">={args.min_count}x).")
 
 
 if __name__ == "__main__":
