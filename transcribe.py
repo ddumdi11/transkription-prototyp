@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from datetime import datetime
 from math import ceil
 from pathlib import Path
@@ -113,6 +114,19 @@ def get_file_size_mb(path: Path) -> float:
     return path.stat().st_size / (1024 * 1024)
 
 
+def format_run_timing(transcribe_seconds: float, audio_duration: float) -> str:
+    """Benchmark-Notiz: Transkriptionsdauer + Echtzeitfaktor.
+
+    Echtzeitfaktor = Transkriptionsdauer / Audiodauer (<1 = schneller als
+    Echtzeit). Ohne verlässliche Audiodauer (ffprobe fehlgeschlagen) wird nur
+    die Dauer ausgegeben. Zahlformat wie im Rest des Tools mit Punkt.
+    """
+    if audio_duration and audio_duration > 0:
+        rtf = transcribe_seconds / audio_duration
+        return f"{transcribe_seconds:.0f} s, {rtf:.2f}x Echtzeit"
+    return f"{transcribe_seconds:.0f} s"
+
+
 def extract_recording_number(filename: str) -> int | None:
     """
     Extrahiert die Aufnahme-Nummer aus dem Dateinamen (erste Zahlengruppe,
@@ -202,15 +216,22 @@ def transcript_exists(audio_path: Path, output_dir: Path, suffix: str) -> bool:
 
 
 def get_audio_duration(path: Path) -> float:
-    """Gibt die Audiodauer in Sekunden zurück (via ffprobe)."""
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        capture_output=True, text=True
-    )
+    """Gibt die Audiodauer in Sekunden zurück (via ffprobe).
+
+    Gibt 0.0 zurück, wenn die Dauer nicht ermittelbar ist (ffprobe fehlt oder
+    scheitert, unlesbare/defekte Datei). Wirft NIE — Aufrufer behandeln 0.0 als
+    "unbekannt": split_audio_file verarbeitet die Datei dann am Stück, und der
+    Echtzeitfaktor entfällt. So kippt eine fehlgeschlagene Dauerermittlung
+    (auch die Benchmark-Annehmlichkeit) niemals einen laufenden Lauf.
+    """
     try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True
+        )
         return float(result.stdout.strip())
-    except ValueError:
+    except (ValueError, OSError, subprocess.SubprocessError):
         return 0.0
 
 
@@ -302,11 +323,13 @@ def write_transcript(
     suffix: str = ".md",
     markdown_title: bool = True,
     header: str | None = None,
+    timing: str | None = None,
 ) -> Path:
     """
     Speichert die Transkription in output_dir als Datei mit gleichem Basenamen.
     Mit header wird der Metadaten-Kopf vorangestellt; sonst bei Markdown
-    ein einfacher Titel.
+    ein einfacher Titel. timing (optional) wird nur an die Erfolgsmeldung
+    angehängt (Benchmark-Info, keine Auswirkung auf die Datei).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / (audio_path.stem + suffix)
@@ -319,7 +342,8 @@ def write_transcript(
         content = text
 
     out_path.write_text(content, encoding="utf-8")
-    print(f"   [OK] gespeichert als: {out_path}")
+    note = f" ({timing})" if timing else ""
+    print(f"   [OK] gespeichert als: {out_path}{note}")
     return out_path
 
 
@@ -477,16 +501,31 @@ def main():
     # .env laden (für CORRECTION_*; OpenAIProvider lädt zusätzlich selbst).
     load_dotenv()
 
+    # Benchmark-Instrumentierung: Gesamtlaufzeit ab hier messen.
+    run_start = time.perf_counter()
+
     input_path = Path(args.input).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
 
     # Transkriptions-Engine wählen. Fehler hier (fehlender API-Key bei openai,
     # nicht installiertes faster-whisper bei local) klar melden statt Traceback.
+    # Modell-Ladezeit separat messen, damit sie den Benchmark-Vergleich nicht
+    # verfälscht (einmaliger Fixaufwand, unabhängig von der Audiomenge).
     try:
+        t_load = time.perf_counter()
         provider = get_provider(args.provider, model=args.model)
+        load_seconds = time.perf_counter() - t_load
     except (RuntimeError, ValueError) as e:
         print(f"[X] {e}")
         raise SystemExit(1)
+
+    # Einmalig protokollieren, welches Device/compute_type tatsächlich genutzt
+    # wird (steht auf "auto" -> hier steht das real Gewählte). Nur wenn der
+    # Provider es zuverlässig auslesen kann (sonst nichts).
+    describe = getattr(provider, "runtime_description", None)
+    runtime_note = describe() if callable(describe) else None
+    if runtime_note:
+        print(f"[i] Engine-Laufzeit: {runtime_note}")
 
     # Optionale LLM-Korrektur vorbereiten (Default: aus). CLI hat Vorrang vor .env.
     corrector = None
@@ -555,14 +594,22 @@ def main():
             size_limit = provider.max_file_size_mb
             dur_limit = provider.max_duration_seconds
             file_size_mb = get_file_size_mb(audio)
+            # Audiodauer einmal ermitteln: fuer den Dauer-Split UND fuer den
+            # Echtzeitfaktor (Benchmark).
+            audio_duration = get_audio_duration(audio)
             over_size = bool(size_limit) and file_size_mb > size_limit
-            over_dur = bool(dur_limit) and get_audio_duration(audio) > dur_limit
+            over_dur = bool(dur_limit) and audio_duration > dur_limit
+            # Reine Transkriptionsdauer messen (Benchmark): der Timer laeuft in
+            # BEIDEN Zweigen nur um die transcribe_file-Aufrufe — ffmpeg-Split
+            # und Temp-Aufraeumen gehoeren nicht in die Transkriptionszeit,
+            # sonst waeren gesplittete Dateien nicht mit normalen vergleichbar.
             if over_size or over_dur:
                 # Datei aufteilen und alle Teile transkribieren
                 parts = split_audio_file(
                     audio, max_size_mb=size_limit, max_duration_seconds=dur_limit)
                 all_texts = []
 
+                t_transcribe = time.perf_counter()
                 for part in parts:
                     text = transcribe_file(
                         part,
@@ -571,6 +618,7 @@ def main():
                         prompt=args.prompt,
                     )
                     all_texts.append(text)
+                transcribe_seconds = time.perf_counter() - t_transcribe
 
                 # Alle Teile zusammenfügen
                 text = "\n\n".join(all_texts)
@@ -584,12 +632,14 @@ def main():
                     parts[0].parent.rmdir()
             else:
                 # Normale Transkription
+                t_transcribe = time.perf_counter()
                 text = transcribe_file(
                     audio,
                     provider=provider,
                     language=args.language,
                     prompt=args.prompt,
                 )
+                transcribe_seconds = time.perf_counter() - t_transcribe
 
             # Post-Processing: Ersetzungen anwenden
             text = apply_replacements(text, replacements)
@@ -605,7 +655,7 @@ def main():
                 header = build_metadata_header(
                     audio, model_label, corrected=corrector is not None)
 
-            # Speichern
+            # Speichern (mit Benchmark-Notiz: Dauer + Echtzeitfaktor)
             out_path = write_transcript(
                 audio_path=audio,
                 text=text,
@@ -613,6 +663,7 @@ def main():
                 suffix=args.suffix,
                 markdown_title=not args.no_markdown_title,
                 header=header,
+                timing=format_run_timing(transcribe_seconds, audio_duration),
             )
             processed += 1
             if src_folder:
@@ -653,8 +704,14 @@ def main():
                     print(f"   [!] Konnte {folder.name} nicht verschieben: {e}")
 
     # Zusammenfassung
+    total_seconds = time.perf_counter() - run_start
     print(f"\n{'=' * 40}")
     print(f"Fertig: {processed} transkribiert, {skipped} übersprungen, {errors} Fehler")
+    # Modell-Ladezeit separat ausweisen, damit sie den Maschinenvergleich nicht
+    # verfälscht ("ohne Laden" ist die vergleichsrelevante Zahl).
+    print(f"Laufzeit: {total_seconds:.0f} s gesamt "
+          f"(Modell laden: {load_seconds:.0f} s, "
+          f"ohne Laden: {total_seconds - load_seconds:.0f} s).")
 
 
 if __name__ == "__main__":

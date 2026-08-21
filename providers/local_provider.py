@@ -76,6 +76,20 @@ class LocalWhisperProvider(TranscriptionProvider):
             self.model_size, device=device, compute_type=compute_type
         )
 
+    def runtime_description(self) -> str | None:
+        """Tatsächlich verwendetes Device + compute_type (für Benchmarks).
+
+        device/compute_type stehen i. d. R. auf "auto"; hier steht, was
+        CTranslate2 daraus tatsächlich gewählt hat (z. B. cpu / int8_float32).
+        Direkt aus der Modellinstanz gelesen, nicht geraten — None, wenn nicht
+        zuverlässig auslesbar (dann lieber nichts als etwas Falsches).
+        """
+        try:
+            ct2 = self._model.model
+            return f"device={ct2.device}, compute_type={ct2.compute_type}"
+        except Exception:
+            return None
+
     @property
     def max_file_size_mb(self) -> float | None:
         return None  # kein 25-MB-Limit -> Splitting für lokal nicht nötig
