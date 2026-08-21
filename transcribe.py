@@ -599,13 +599,17 @@ def main():
             audio_duration = get_audio_duration(audio)
             over_size = bool(size_limit) and file_size_mb > size_limit
             over_dur = bool(dur_limit) and audio_duration > dur_limit
-            t_transcribe = time.perf_counter()
+            # Reine Transkriptionsdauer messen (Benchmark): der Timer laeuft in
+            # BEIDEN Zweigen nur um die transcribe_file-Aufrufe — ffmpeg-Split
+            # und Temp-Aufraeumen gehoeren nicht in die Transkriptionszeit,
+            # sonst waeren gesplittete Dateien nicht mit normalen vergleichbar.
             if over_size or over_dur:
                 # Datei aufteilen und alle Teile transkribieren
                 parts = split_audio_file(
                     audio, max_size_mb=size_limit, max_duration_seconds=dur_limit)
                 all_texts = []
 
+                t_transcribe = time.perf_counter()
                 for part in parts:
                     text = transcribe_file(
                         part,
@@ -614,6 +618,7 @@ def main():
                         prompt=args.prompt,
                     )
                     all_texts.append(text)
+                transcribe_seconds = time.perf_counter() - t_transcribe
 
                 # Alle Teile zusammenfügen
                 text = "\n\n".join(all_texts)
@@ -627,15 +632,14 @@ def main():
                     parts[0].parent.rmdir()
             else:
                 # Normale Transkription
+                t_transcribe = time.perf_counter()
                 text = transcribe_file(
                     audio,
                     provider=provider,
                     language=args.language,
                     prompt=args.prompt,
                 )
-            # Reine Transkriptionsdauer (ohne Post-Processing/Speichern) fuer
-            # den Benchmark-Vergleich.
-            transcribe_seconds = time.perf_counter() - t_transcribe
+                transcribe_seconds = time.perf_counter() - t_transcribe
 
             # Post-Processing: Ersetzungen anwenden
             text = apply_replacements(text, replacements)
