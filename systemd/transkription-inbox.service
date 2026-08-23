@@ -1,0 +1,8 @@
+[Unit]
+Description=AudioRec Inbox prüfen und neue Aufnahmen transkribieren
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/zarko/src/Projects_Cloned-Github/transkription-prototyp
+ExecStart=/home/zarko/src/Projects_Cloned-Github/transkription-prototyp/.venv/bin/python /home/zarko/src/Projects_Cloned-Github/transkription-prototyp/inbox_pipeline.py
