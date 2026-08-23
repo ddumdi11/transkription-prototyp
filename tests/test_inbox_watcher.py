@@ -96,6 +96,37 @@ class InboxWatcherTest(unittest.TestCase):
         self.assertEqual(destination_again, destination)
         self.assertFalse(downloaded_again)
 
+    def test_staging_destinations_differ_after_matching_id_prefixes(self):
+        first_content = b"first"
+        second_content = b"second"
+        first_id = "same-prefix-123_A"
+        second_id = "same-prefix-123_B"
+        items = [
+            audio(first_id, "gleich.wav", hashlib.sha256(first_content).hexdigest(),
+                  len(first_content)),
+            audio(second_id, "gleich.wav", hashlib.sha256(second_content).hexdigest(),
+                  len(second_content)),
+        ]
+        classify(self.db, items, 1000, 10)
+        classify(self.db, items, 1011, 10)
+        staging_dir = Path(self.temp.name) / "staging-distinct"
+        content_by_id = {first_id: first_content, second_id: second_content}
+
+        def fake_run(command, **kwargs):
+            Path(command[-1]).write_bytes(content_by_id[command[4]])
+
+        with patch("inbox_watcher.subprocess.run", side_effect=fake_run):
+            first_path, _ = stage_ready_file(
+                self.db, "gdrive:AudioRec Recordings", staging_dir, first_id, 1020
+            )
+            second_path, _ = stage_ready_file(
+                self.db, "gdrive:AudioRec Recordings", staging_dir, second_id, 1020
+            )
+
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(first_path.name, "gleich__same-prefix-123_A.wav")
+        self.assertEqual(second_path.name, "gleich__same-prefix-123_B.wav")
+
 
 if __name__ == "__main__":
     unittest.main()

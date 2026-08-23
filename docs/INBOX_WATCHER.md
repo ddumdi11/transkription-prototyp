@@ -1,8 +1,10 @@
 # Inbox-Wächter v0.1 (Dry-Run)
 
-Der Wächter liest die Dateiliste aus `gdrive:AudioRec Recordings`, führt lokalen
-Zustand und klassifiziert Uploads. Er lädt nichts herunter, transkribiert nichts
-und ändert keine Datei auf Google Drive.
+Der normale Wächterlauf liest die Dateiliste aus `gdrive:AudioRec Recordings`,
+führt lokalen Zustand und klassifiziert Uploads. Dabei lädt, verschiebt, löscht
+oder transkribiert er nichts. Nur das ausdrücklich angegebene `--stage-id` lädt
+eine ausgewählte Datei nach lokaler Größen- und Hashprüfung ins lokale Staging.
+Google Drive wird auch dabei nicht verändert.
 
 ```bash
 cd ~/src/Projects_Cloned-Github/transkription-prototyp

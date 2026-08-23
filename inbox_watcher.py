@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only Google Drive inbox scanner.
+"""Google Drive inbox scanner with optional explicit local staging.
 
-This MVP only lists and classifies files. It never downloads, moves, deletes, or
-transcribes anything. The local SQLite state is intentionally persistent so a
-file can become READY after two unchanged observations with enough time apart.
+Normal scans only list and classify files; they never download, move, delete, or
+transcribe anything. ``--stage-id`` explicitly downloads verified audio to local
+staging. The local SQLite state is intentionally persistent so a file can become
+READY after two unchanged observations with enough time apart.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import subprocess
 import sys
 import time
 from typing import Any, Iterable
+from urllib.parse import quote
 
 
 AUDIO_SUFFIXES = {".wav", ".m4a", ".mp3", ".flac", ".ogg"}
@@ -225,7 +227,7 @@ def staging_name(path: str, drive_id: str) -> str:
     source_name = Path(path).name
     suffix = Path(source_name).suffix
     stem = source_name[:-len(suffix)] if suffix else source_name
-    safe_id = "".join(c for c in drive_id if c.isalnum())[:12]
+    safe_id = quote(drive_id, safe="")
     return f"{stem}__{safe_id}{suffix}"
 
 
