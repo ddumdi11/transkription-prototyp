@@ -1,0 +1,11 @@
+[Unit]
+Description=AudioRec Inbox alle drei Minuten prüfen
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+Persistent=true
+Unit=transkription-inbox.service
+
+[Install]
+WantedBy=timers.target

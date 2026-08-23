@@ -18,6 +18,11 @@ gui_settings.json
 input/
 output/
 
+# Inbox-Wächter (lokaler Laufzeit-Zustand und Logs)
+.inbox-watcher/
+staging/
+:memory:.ses
+
 # Eval & private Mess-Daten (keine committeten Tests hier; nur Clips,
 # Referenztexte und generierte Gegenüberstellungen).
 eval/clips/
