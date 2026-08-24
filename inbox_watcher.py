@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -24,7 +25,7 @@ from urllib.parse import quote
 
 
 AUDIO_SUFFIXES = {".wav", ".m4a", ".mp3", ".flac", ".ogg"}
-DEFAULT_SOURCE = 'gdrive:AudioRec Recordings'
+DEFAULT_SOURCE = os.environ.get("AUDIOREC_SOURCE", "gdrive:AudioRec Recordings")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

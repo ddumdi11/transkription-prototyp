@@ -76,3 +76,12 @@ Der lokale Betriebszustand liegt unter `.inbox-watcher/state.sqlite3`. Datierte
 Sicherungen können unter `.inbox-watcher/backups/` abgelegt werden. Audio- und
 Transkriptdateien unter `staging/` sowie sämtliche Laufzeitdaten sind bewusst
 von Git ausgeschlossen.
+
+Wenn Drive mehrere Ordner mit demselben Namen enthält, sollte die Quelle über
+die eindeutige Ordner-ID in `.inbox-watcher/pipeline.env` festgelegt werden:
+
+```text
+AUDIOREC_SOURCE=gdrive,root_folder_id=DRIVE_ORDNER_ID:
+```
+
+Die systemd-Vorlage lädt diese lokale, von Git ausgeschlossene Konfiguration.

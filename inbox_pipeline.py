@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -12,7 +13,7 @@ import time
 from inbox_watcher import classify, load_listing, open_state, setup_logging, stage_ready_file
 
 PROMPT = "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
-SOURCE = "gdrive:AudioRec Recordings"
+SOURCE = os.environ.get("AUDIOREC_SOURCE", "gdrive:AudioRec Recordings")
 STATE_DIR = Path(".inbox-watcher")
 STAGING_DIR = Path("staging/inbox")
 OUTPUT_DIR = Path("staging/transcripts")
