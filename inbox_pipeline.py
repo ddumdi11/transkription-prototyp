@@ -10,7 +10,8 @@ import sqlite3
 import subprocess
 import time
 
-from inbox_watcher import classify, load_listing, open_state, setup_logging, stage_ready_file
+from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_state,
+                           setup_logging, stage_ready_file)
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
 
 PROMPT = "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
@@ -20,18 +21,6 @@ STAGING_DIR = Path("staging/inbox")
 OUTPUT_DIR = Path("staging/transcripts")
 TRANSCRIPTS_TARGET = os.environ.get("AUDIOREC_TRANSCRIPTS_TARGET")
 AUTO_PUBLISH = os.environ.get("AUDIOREC_AUTO_PUBLISH") == "1"
-
-
-def ensure_pipeline_state(db: sqlite3.Connection) -> None:
-    db.execute("CREATE TABLE IF NOT EXISTS pipeline_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS transcription_jobs (
-            drive_id TEXT PRIMARY KEY, status TEXT NOT NULL,
-            attempts INTEGER NOT NULL DEFAULT 0, local_audio TEXT,
-            transcript_path TEXT, last_error TEXT, updated_at REAL NOT NULL
-        )"""
-    )
-    db.commit()
 
 
 def activate_from_id(db: sqlite3.Connection, drive_id: str) -> float:

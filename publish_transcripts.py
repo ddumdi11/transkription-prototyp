@@ -12,7 +12,7 @@ import sqlite3
 import subprocess
 import time
 
-from inbox_watcher import open_state, setup_logging, staging_name
+from inbox_watcher import ensure_pipeline_state, open_state, setup_logging, staging_name
 
 STATE_DIR = Path(".inbox-watcher")
 TARGET = os.environ.get("AUDIOREC_TRANSCRIPTS_TARGET")
@@ -31,6 +31,11 @@ def ensure_publish_state(db: sqlite3.Connection) -> None:
         )"""
     )
     db.commit()
+
+
+def prepare_publish_state(db: sqlite3.Connection) -> None:
+    ensure_pipeline_state(db)
+    ensure_publish_state(db)
 
 
 def pending_publications(db: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -151,7 +156,7 @@ def main() -> int:
         if args.publish_all and args.publish_id:
             raise ValueError("--publish-all und --publish-id dürfen nicht kombiniert werden")
         with open_state(STATE_DIR / "state.sqlite3") as db:
-            ensure_publish_state(db)
+            prepare_publish_state(db)
             pending = pending_publications(db)
             logger.info("Veröffentlichungsplan: %d DONE, noch nicht veröffentlicht", len(pending))
             if args.verbose:

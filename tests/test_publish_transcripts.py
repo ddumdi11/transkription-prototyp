@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 from inbox_pipeline import ensure_pipeline_state
 from inbox_watcher import open_state
-from publish_transcripts import ensure_publish_state, pending_publications, publish_one
+from publish_transcripts import (ensure_publish_state, pending_publications,
+                                 prepare_publish_state, publish_one)
 
 
 class PublishTranscriptsTest(unittest.TestCase):
@@ -46,6 +47,14 @@ class PublishTranscriptsTest(unittest.TestCase):
         self.add_done_job()
         self.assertEqual([row["drive_id"] for row in pending_publications(self.db)],
                          ["audio-id"])
+
+    def test_publish_planning_initializes_fresh_database(self):
+        fresh = open_state(self.root / "fresh-state.sqlite3")
+        try:
+            prepare_publish_state(fresh)
+            self.assertEqual(pending_publications(fresh), [])
+        finally:
+            fresh.close()
 
     def test_publish_verifies_remote_and_is_idempotent(self):
         transcript = self.add_done_job()
