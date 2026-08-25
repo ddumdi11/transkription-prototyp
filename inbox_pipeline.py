@@ -11,12 +11,15 @@ import subprocess
 import time
 
 from inbox_watcher import classify, load_listing, open_state, setup_logging, stage_ready_file
+from publish_transcripts import ensure_publish_state, pending_publications, publish_one
 
 PROMPT = "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
 SOURCE = os.environ.get("AUDIOREC_SOURCE", "gdrive:AudioRec Recordings")
 STATE_DIR = Path(".inbox-watcher")
 STAGING_DIR = Path("staging/inbox")
 OUTPUT_DIR = Path("staging/transcripts")
+TRANSCRIPTS_TARGET = os.environ.get("AUDIOREC_TRANSCRIPTS_TARGET")
+AUTO_PUBLISH = os.environ.get("AUDIOREC_AUTO_PUBLISH") == "1"
 
 
 def ensure_pipeline_state(db: sqlite3.Connection) -> None:
@@ -102,6 +105,22 @@ def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now:
     return transcript
 
 
+def publish_pending(db: sqlite3.Connection, target: str, logger) -> int:
+    ensure_publish_state(db)
+    jobs = pending_publications(db)
+    logger.info("Auto-Veröffentlichung: %d neuer DONE-Job(s)", len(jobs))
+    failures = 0
+    for job in jobs:
+        try:
+            name, uploaded = publish_one(db, target, job["drive_id"], time.time())
+            logger.info("Job PUBLISHED id=%s remote=%r upload=%s",
+                        job["drive_id"], name, "neu" if uploaded else "bereits vorhanden")
+        except Exception as exc:
+            failures += 1
+            logger.exception("Publish FAILED id=%s: %s", job["drive_id"], exc)
+    return failures
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Neue READY-Aufnahmen automatisch lokal transkribieren")
     parser.add_argument("--activate-from-id", metavar="DRIVE_ID",
@@ -141,6 +160,12 @@ def main() -> int:
                 except Exception as exc:
                     failures += 1
                     logger.exception("Job FAILED id=%s: %s", job["drive_id"], exc)
+            if AUTO_PUBLISH:
+                if not TRANSCRIPTS_TARGET:
+                    raise ValueError(
+                        "AUDIOREC_AUTO_PUBLISH=1, aber AUDIOREC_TRANSCRIPTS_TARGET fehlt"
+                    )
+                failures += publish_pending(db, TRANSCRIPTS_TARGET, logger)
             return 1 if failures else 0
     except Exception as exc:
         logger.exception("Pipeline fehlgeschlagen: %s", exc)
