@@ -1,8 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from inbox_pipeline import activate_from_id, activation_cutoff, ensure_pipeline_state, pending_ready
+from inbox_pipeline import (activate_from_id, activation_cutoff, ensure_pipeline_state,
+                            pending_ready, publish_pending)
 from inbox_watcher import classify, open_state
 
 
@@ -45,6 +47,22 @@ class InboxPipelineTest(unittest.TestCase):
         )
         self.db.commit()
         self.assertEqual(pending_ready(self.db, cutoff), [])
+
+    def test_publish_pending_processes_done_job(self):
+        item = audio("new", "new.wav", "bbb")
+        classify(self.db, [item], 2000, 10)
+        classify(self.db, [item], 2011, 10)
+        self.db.execute(
+            """INSERT INTO transcription_jobs
+               (drive_id,status,attempts,local_audio,transcript_path,last_error,updated_at)
+               VALUES ('new','DONE',1,'audio.wav','transcript.md',NULL,2020)"""
+        )
+        self.db.commit()
+        logger = Mock()
+        with patch("inbox_pipeline.publish_one", return_value=("new.md", True)) as publish:
+            failures = publish_pending(self.db, "gdrive,target:", logger)
+        self.assertEqual(failures, 0)
+        publish.assert_called_once_with(self.db, "gdrive,target:", "new", unittest.mock.ANY)
 
 
 if __name__ == "__main__":

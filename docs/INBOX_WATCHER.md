@@ -85,3 +85,50 @@ AUDIOREC_SOURCE=gdrive,root_folder_id=DRIVE_ORDNER_ID:
 ```
 
 Die systemd-Vorlage lädt diese lokale, von Git ausgeschlossene Konfiguration.
+
+## Transkripte veröffentlichen (v0.2)
+
+`publish_transcripts.py` zeigt standardmäßig nur den Plan aller erfolgreichen,
+noch nicht veröffentlichten Transkripte. Es lädt ohne `--publish-id` nichts hoch.
+
+```bash
+.venv/bin/python publish_transcripts.py
+```
+
+Das Ziel wird ebenfalls per eindeutiger Drive-Ordner-ID in
+`.inbox-watcher/pipeline.env` konfiguriert:
+
+```text
+AUDIOREC_TRANSCRIPTS_TARGET=gdrive,root_folder_id=DRIVE_ORDNER_ID:
+```
+
+Ein einzelnes Transkript wird anhand der ursprünglichen Audio-Drive-ID explizit
+veröffentlicht:
+
+```bash
+.venv/bin/python publish_transcripts.py --publish-id AUDIO_DRIVE_ID
+```
+
+Nach geprüftem Einzeltest kann der gesamte geplante Rückstand ausdrücklich
+verifiziert beziehungsweise veröffentlicht werden:
+
+```bash
+.venv/bin/python publish_transcripts.py --publish-all
+```
+
+Bereits vorhandene, identische Remote-Dateien werden übernommen und nicht erneut
+hochgeladen. `--verbose` zeigt bei Bedarf alle geplanten Jobs einzeln an.
+
+Lokale und entfernte Größe sowie SHA256 werden geprüft, bevor der persistente
+Status `PUBLISHED` gespeichert wird. Wiederholte Aufrufe erzeugen keine Dublette.
+
+Nach abgeschlossenem Einzel- und Rückstandstest kann die automatische
+Veröffentlichung in `.inbox-watcher/pipeline.env` aktiviert werden:
+
+```text
+AUDIOREC_AUTO_PUBLISH=1
+```
+
+Ohne diesen expliziten Wert bleibt die automatische Veröffentlichung aus. Bei
+einem Uploadfehler bleibt der Transkriptionsjob `DONE` und wird beim nächsten
+Timerlauf erneut zur Veröffentlichung angeboten.

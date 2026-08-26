@@ -114,6 +114,21 @@ def open_state(path: Path) -> sqlite3.Connection:
     return db
 
 
+def ensure_pipeline_state(db: sqlite3.Connection) -> None:
+    """Create state shared by transcription and publication workflows."""
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS pipeline_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS transcription_jobs (
+            drive_id TEXT PRIMARY KEY, status TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0, local_audio TEXT,
+            transcript_path TEXT, last_error TEXT, updated_at REAL NOT NULL
+        )"""
+    )
+    db.commit()
+
+
 def load_listing(source: str, listing_file: Path | None) -> list[dict[str, Any]]:
     if listing_file:
         raw = listing_file.read_text(encoding="utf-8")
