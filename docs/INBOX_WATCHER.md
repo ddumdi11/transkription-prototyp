@@ -132,3 +132,37 @@ AUDIOREC_AUTO_PUBLISH=1
 Ohne diesen expliziten Wert bleibt die automatische Veröffentlichung aus. Bei
 einem Uploadfehler bleibt der Transkriptionsjob `DONE` und wird beim nächsten
 Timerlauf erneut zur Veröffentlichung angeboten.
+
+## Projektverteilung planen (v0.3 Dry-Run)
+
+`route_transcripts.py` plant die projektbezogene Verteilung bereits erfolgreich
+veröffentlichter Transkripte. Das kanonische Transkript in `AudioRec Transcripts`
+bleibt unverändert. Der Dry-Run kopiert keine Datei und ändert nichts auf Drive.
+
+Die lokale, von Git ausgeschlossene Konfiguration wird einmalig aus dem Beispiel
+angelegt:
+
+```bash
+cp routing.example.json .inbox-watcher/routing.json
+```
+
+`default_projects` erhalten jedes Transkript. `active_projects` beschreiben den
+aktuellen Arbeitskontext und erhalten während dieser Phase ebenfalls jedes
+Transkript. `project_rules` ergänzen Projekte anhand transparenter Suchbegriffe;
+`topic_rules` vergeben davon unabhängige Themen-Tags.
+
+Den Plan für einen Aufnahmebereich anzeigen:
+
+```bash
+.venv/bin/python route_transcripts.py --from-number 565 --to-number 570
+```
+
+Maschinenlesbare Ausgabe:
+
+```bash
+.venv/bin/python route_transcripts.py --from-number 565 --to-number 570 --json
+```
+
+Jedes Ziel wird mit `default`, `active_context` oder den passenden
+`content:`-Begriffen begründet. In v0.3 erzeugt das Werkzeug ausschließlich den
+Plan; die idempotente Kopierfunktion folgt erst nach geprüftem Dry-Run.
