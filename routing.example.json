@@ -1,0 +1,37 @@
+{
+  "default_projects": [
+    "Z04 - MyOwnCents",
+    "Selbstregulation statt Selbstoptimierung"
+  ],
+  "active_projects": [
+    "Implementiere Inbox-Wächter MVP",
+    "Projekt Selbständigkeit"
+  ],
+  "project_rules": [
+    {
+      "project": "Implementiere Inbox-Wächter MVP",
+      "match_any": [
+        "Upload", "Drive", "Pipeline", "Workflow", "Inbox-Wächter",
+        "Sperrbildschirm", "Transkriptionsautomatisierung"
+      ]
+    },
+    {
+      "project": "Projekt Selbständigkeit",
+      "match_any": [
+        "Selbstständigkeit", "Selbständigkeit", "IHK", "Kunde", "Angebot",
+        "Geschäftsmodell", "Gründung", "Finanzplan"
+      ]
+    }
+  ],
+  "topic_rules": {
+    "behoerden-ihk": ["Agentur für Arbeit", "Arbeitsamt", "IHK", "Restanspruch"],
+    "geschaeftsmodell-angebote": ["Geschäftsmodell", "Kunde", "Angebot", "Preis"],
+    "produktideen": ["Produktidee", "Webseite", "Promptseite", "Checkbox"],
+    "transkriptionsworkflow-test": [
+      "Upload", "Drive", "Pipeline", "Workflow", "Inbox-Wächter",
+      "Sperrbildschirm", "Transkriptionsautomatisierung"
+    ],
+    "persoenliche-reflexion": ["Selbstreflexion", "Selbstregulation", "Heimathafen"],
+    "recherche-faktencheck": ["Recherche", "Faktencheck", "Bias"]
+  }
+}
