@@ -31,6 +31,24 @@ def load_config(path: Path) -> dict[str, Any]:
         raise ValueError("Projektfelder der Routing-Konfiguration müssen Listen sein")
     if not isinstance(config["topic_rules"], dict):
         raise ValueError("topic_rules muss ein Objekt sein")
+    for index, rule in enumerate(config["project_rules"]):
+        if not isinstance(rule, dict):
+            raise ValueError(f"project_rules[{index}] muss ein Objekt sein")
+        project = rule.get("project")
+        if not isinstance(project, str) or not project.strip():
+            raise ValueError(
+                f"project_rules[{index}].project muss ein nichtleerer Text sein"
+            )
+        terms = rule.get("match_any")
+        if (not isinstance(terms, list)
+                or not all(isinstance(term, str) and term for term in terms)):
+            raise ValueError(
+                f"project_rules[{index}].match_any muss eine Textliste sein"
+            )
+    for topic, terms in config["topic_rules"].items():
+        if (not isinstance(terms, list)
+                or not all(isinstance(term, str) and term for term in terms)):
+            raise ValueError(f"topic_rules[{topic!r}] muss eine Textliste sein")
     return config
 
 

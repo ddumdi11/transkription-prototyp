@@ -1,10 +1,12 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from inbox_watcher import open_state
 from publish_transcripts import prepare_publish_state
-from route_transcripts import plan_one, published_transcripts, recording_number
+from route_transcripts import (load_config, plan_one, published_transcripts,
+                               recording_number)
 
 
 class RouteTranscriptsTest(unittest.TestCase):
@@ -77,6 +79,26 @@ class RouteTranscriptsTest(unittest.TestCase):
     def test_recording_number_handles_unknown_names(self):
         self.assertEqual(recording_number("Aufnahme #570.wav"), 570)
         self.assertIsNone(recording_number("Meeting.wav"))
+
+    def test_load_config_rejects_malformed_nested_rules(self):
+        base = {
+            "default_projects": ["Z04"],
+            "active_projects": [],
+            "project_rules": [{"project": "Watcher", "match_any": ["Upload"]}],
+            "topic_rules": {"workflow": ["Drive"]},
+        }
+        malformed = [
+            {**base, "project_rules": ["not-an-object"]},
+            {**base, "project_rules": [{"match_any": ["Upload"]}]},
+            {**base, "project_rules": [{"project": "Watcher", "match_any": "Upload"}]},
+            {**base, "topic_rules": {"workflow": "Drive"}},
+        ]
+        for index, config in enumerate(malformed):
+            with self.subTest(index=index):
+                path = self.root / f"malformed-{index}.json"
+                path.write_text(json.dumps(config), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    load_config(path)
 
 
 if __name__ == "__main__":
