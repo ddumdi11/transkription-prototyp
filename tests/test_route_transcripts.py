@@ -91,7 +91,11 @@ class RouteTranscriptsTest(unittest.TestCase):
             {**base, "project_rules": ["not-an-object"]},
             {**base, "project_rules": [{"match_any": ["Upload"]}]},
             {**base, "project_rules": [{"project": "Watcher", "match_any": "Upload"}]},
+            {**base, "project_rules": [{"project": "Watcher", "match_any": []}]},
+            {**base, "project_rules": [{"project": "Watcher", "match_any": ["  "]}]},
             {**base, "topic_rules": {"workflow": "Drive"}},
+            {**base, "topic_rules": {"workflow": []}},
+            {**base, "topic_rules": {"workflow": ["\t"]}},
         ]
         for index, config in enumerate(malformed):
             with self.subTest(index=index):

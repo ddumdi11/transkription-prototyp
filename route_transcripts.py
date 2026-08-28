@@ -41,13 +41,15 @@ def load_config(path: Path) -> dict[str, Any]:
             )
         terms = rule.get("match_any")
         if (not isinstance(terms, list)
-                or not all(isinstance(term, str) and term for term in terms)):
+                or not terms
+                or not all(isinstance(term, str) and term.strip() for term in terms)):
             raise ValueError(
                 f"project_rules[{index}].match_any muss eine Textliste sein"
             )
     for topic, terms in config["topic_rules"].items():
         if (not isinstance(terms, list)
-                or not all(isinstance(term, str) and term for term in terms)):
+                or not terms
+                or not all(isinstance(term, str) and term.strip() for term in terms)):
             raise ValueError(f"topic_rules[{topic!r}] muss eine Textliste sein")
     return config
 
