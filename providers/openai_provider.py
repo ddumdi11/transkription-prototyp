@@ -50,7 +50,10 @@ class OpenAIProvider(TranscriptionProvider):
         return GPT4O_MAX_DURATION_SECONDS
 
     def transcribe(self, audio_path: Path, language: str,
-                   prompt: str | None = None) -> str:
+                   prompt: str | None = None,
+                   hotwords: str | None = None) -> str:
+        # hotwords ist eine faster-whisper-Funktion. Beim Cloud-Provider bleibt
+        # der Kontext-Prompt der vorgesehene Weg für Vokabularhinweise.
         with audio_path.open("rb") as f:
             kwargs = {
                 "model": self.model,

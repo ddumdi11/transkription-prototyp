@@ -99,11 +99,13 @@ class LocalWhisperProvider(TranscriptionProvider):
         return None  # faster-whisper verarbeitet beliebig lange Dateien am Stück
 
     def transcribe(self, audio_path: Path, language: str,
-                   prompt: str | None = None) -> str:
+                   prompt: str | None = None,
+                   hotwords: str | None = None) -> str:
         segments, _ = self._model.transcribe(
             str(audio_path),
             language=language,
             initial_prompt=prompt,  # Pendant zum OpenAI-prompt
+            hotwords=hotwords,
             vad_filter=self.vad_filter,
             condition_on_previous_text=self.condition_on_previous_text,
             repetition_penalty=self.repetition_penalty,

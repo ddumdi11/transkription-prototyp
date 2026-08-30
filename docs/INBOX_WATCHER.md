@@ -86,6 +86,15 @@ AUDIOREC_SOURCE=gdrive,root_folder_id=DRIVE_ORDNER_ID:
 
 Die systemd-Vorlage lädt diese lokale, von Git ausgeschlossene Konfiguration.
 
+Für die lokale Erkennung können Kontext-Prompt und Hotwords ebenfalls dort
+gepflegt werden. Hotwords beeinflussen die Erkennung, führen aber noch keine
+nachträgliche Textersetzung aus:
+
+```text
+AUDIOREC_PROMPT=Fachbegriffe: Diktiergerät, Claude, Claude Code, KI
+AUDIOREC_HOTWORDS=Traktat
+```
+
 ## Transkripte veröffentlichen (v0.2)
 
 `publish_transcripts.py` zeigt standardmäßig nur den Plan aller erfolgreichen,

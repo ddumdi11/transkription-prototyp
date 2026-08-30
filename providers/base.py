@@ -14,7 +14,8 @@ class TranscriptionProvider(ABC):
 
     @abstractmethod
     def transcribe(self, audio_path: Path, language: str,
-                   prompt: str | None = None) -> str:
+                   prompt: str | None = None,
+                   hotwords: str | None = None) -> str:
         """Gibt den reinen Transkriptionstext zurück."""
 
     @property
