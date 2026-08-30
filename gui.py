@@ -71,6 +71,7 @@ class TranscriptionGUI:
         self.output_folder = tk.StringVar(value=settings.get("output_folder", "output"))
         self.prompt = tk.StringVar(value=settings.get(
             "prompt", "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"))
+        self.hotwords = tk.StringVar(value=settings.get("hotwords", "Traktat"))
         self.move_after_join = tk.BooleanVar(value=settings.get("move_after_join", True))
         self.force_retranscribe = tk.BooleanVar(value=False)
 
@@ -227,6 +228,7 @@ class TranscriptionGUI:
             "input_folder": self.input_folder.get(),
             "output_folder": self.output_folder.get(),
             "prompt": self.prompt.get(),
+            "hotwords": self.hotwords.get(),
             "move_after_join": self.move_after_join.get(),
             "no_replacements": self.no_replacements.get(),
             "workflow_mode": self.workflow_mode.get(),
@@ -447,6 +449,13 @@ class TranscriptionGUI:
         prompt_entry = ttk.Entry(options_frame, textvariable=self.prompt)
         prompt_entry.pack(fill=tk.X, pady=(2, 5))
 
+        ttk.Label(
+            options_frame,
+            text="Hotwords (nur lokal, kommagetrennt):",
+        ).pack(anchor=tk.W)
+        hotwords_entry = ttk.Entry(options_frame, textvariable=self.hotwords)
+        hotwords_entry.pack(fill=tk.X, pady=(2, 5))
+
         # Weitere Optionen
         ttk.Checkbutton(
             options_frame,
@@ -642,6 +651,9 @@ class TranscriptionGUI:
 
         if self.prompt.get().strip():
             cmd.extend(["--prompt", self.prompt.get()])
+
+        if self._current_provider() == "local" and self.hotwords.get().strip():
+            cmd.extend(["--hotwords", self.hotwords.get()])
 
         if self.force_retranscribe.get():
             cmd.append("--force")
