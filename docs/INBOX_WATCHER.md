@@ -86,6 +86,21 @@ AUDIOREC_SOURCE=gdrive,root_folder_id=DRIVE_ORDNER_ID:
 
 Die systemd-Vorlage lädt diese lokale, von Git ausgeschlossene Konfiguration.
 
+### Abgelaufene Drive-Anmeldung
+
+Wenn Google das rclone-Refresh-Token mit `invalid_grant` ablehnt, schreibt die
+Pipeline die vollständige rclone-Fehlermeldung ins Journal und zeigt eine
+kritische Desktop-Benachrichtigung mit dem Reparaturbefehl an:
+
+```bash
+rclone config reconnect gdrive:
+```
+
+Eine Markerdatei unter `.inbox-watcher/rclone-auth-required` hält den Fehler
+auch nach dem Benachrichtigungsfenster fest. Weitere Hinweise werden für sechs
+Stunden unterdrückt. Nach dem nächsten erfolgreichen Drive-Zugriff entfernt die
+Pipeline den Marker automatisch.
+
 Für die lokale Erkennung können Kontext-Prompt und Hotwords ebenfalls dort
 gepflegt werden. Hotwords beeinflussen die Erkennung, führen aber noch keine
 nachträgliche Textersetzung aus:
