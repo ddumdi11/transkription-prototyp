@@ -14,7 +14,10 @@ from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_s
                            setup_logging, stage_ready_file)
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
 
-PROMPT = "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
+PROMPT = os.environ.get(
+    "AUDIOREC_PROMPT", "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
+)
+HOTWORDS = os.environ.get("AUDIOREC_HOTWORDS", "Traktat")
 SOURCE = os.environ.get("AUDIOREC_SOURCE", "gdrive:AudioRec Recordings")
 STATE_DIR = Path(".inbox-watcher")
 STAGING_DIR = Path("staging/inbox")
@@ -75,6 +78,8 @@ def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now:
         "--output-dir", str(OUTPUT_DIR), "--provider", "local", "--model", "medium",
         "--prompt", PROMPT, "--metadata-header",
     ]
+    if HOTWORDS.strip():
+        command.extend(["--hotwords", HOTWORDS])
     try:
         subprocess.run(command, check=True)
         if not transcript.exists():

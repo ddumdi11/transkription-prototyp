@@ -308,12 +308,15 @@ def split_audio_file(audio_path: Path, max_size_mb: float | None = MAX_FILE_SIZE
 
 
 def transcribe_file(audio_path: Path, provider: TranscriptionProvider,
-                    language: str, prompt: str = None) -> str:
+                    language: str, prompt: str | None = None,
+                    hotwords: str | None = None) -> str:
     """
     Vollständige Transkription (ohne Zeitmarken) als reinen Text zurückgeben.
     """
     print(f"-> Transkribiere: {audio_path.name} ...")
-    return provider.transcribe(audio_path, language=language, prompt=prompt)
+    return provider.transcribe(
+        audio_path, language=language, prompt=prompt, hotwords=hotwords
+    )
 
 
 def write_transcript(
@@ -451,6 +454,14 @@ def main():
         "--prompt",
         default=None,
         help="Kontext-Prompt für bessere Erkennung (z.B. Fachbegriffe, Namen).",
+    )
+    parser.add_argument(
+        "--hotwords",
+        default=None,
+        help=(
+            "Kommagetrennte Hotwords/Hinweisbegriffe für faster-whisper "
+            "(nur Provider local)."
+        ),
     )
     parser.add_argument(
         "--no-replacements",
@@ -616,6 +627,7 @@ def main():
                         provider=provider,
                         language=args.language,
                         prompt=args.prompt,
+                        hotwords=args.hotwords,
                     )
                     all_texts.append(text)
                 transcribe_seconds = time.perf_counter() - t_transcribe
@@ -638,6 +650,7 @@ def main():
                     provider=provider,
                     language=args.language,
                     prompt=args.prompt,
+                    hotwords=args.hotwords,
                 )
                 transcribe_seconds = time.perf_counter() - t_transcribe
 

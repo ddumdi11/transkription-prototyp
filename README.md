@@ -33,6 +33,9 @@ für lange/technische Diktate gezielt `gpt-4o-transcribe` (Details in der Tabell
 - Die gpt-4o-Modelle haben ein Limit von ~23 Min pro Datei; lange Aufnahmen werden automatisch geteilt. `whisper-1` und die lokalen Modelle haben kein solches Limit.
 - **Der größte Qualitätshebel ist die Aufnahme selbst** — gutes Mikrofon, wenig Wind/Nebengeräusch — mehr als die Modellwahl.
 - Der `--prompt` wirkt als Vokabular-Hinweis: trage wiederkehrende Eigennamen und Fachbegriffe ein, das verbessert die Erkennung bei beiden Engines.
+- Beim lokalen Provider verstärkt `--hotwords` seltene Wörter zusätzlich. Die
+  Liste ist kommagetrennt, beispielsweise `--hotwords "Traktat, MyOwnCents"`.
+  Hotwords beeinflussen die Erkennung; sie ersetzen den Text nicht nachträglich.
 
 ## Vorbereitung
 
@@ -102,6 +105,7 @@ Die GUI bietet drei Hauptaktionen:
 - **Input-Ordner**: Ordner mit Audio-Dateien (Standard: `input`)
 - **Output-Ordner**: Ordner für Transkripte (Standard: `output`)
 - **Kontext-Prompt**: Fachbegriffe für bessere Erkennung
+- **Hotwords**: zusätzliche kommagetrennte Hinweisbegriffe für faster-whisper
 - **Automatische Ersetzungen**: Korrigiert bekannte Erkennungsfehler
 
 ---
@@ -114,6 +118,14 @@ Die GUI bietet drei Hauptaktionen:
 # Jede Aufnahme einzeln transkribieren (Metadaten-Kopf), je Quellordner ein
 # Sammeltranskript auf Textebene, Ordner danach nach processed/ verschieben
 python transcribe.py input --metadata-header --merge-transcripts --move-processed --prompt "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
+```
+
+Mit zusätzlichen lokalen Hotwords:
+
+```bash
+python transcribe.py input --provider local --model medium \
+  --prompt "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI" \
+  --hotwords "Traktat, MyOwnCents"
 ```
 
 Aus `input/MyCents_2026-06-10/` (drei Aufnahmen) entsteht so in `output/`:
