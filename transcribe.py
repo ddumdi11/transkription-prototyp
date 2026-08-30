@@ -308,8 +308,8 @@ def split_audio_file(audio_path: Path, max_size_mb: float | None = MAX_FILE_SIZE
 
 
 def transcribe_file(audio_path: Path, provider: TranscriptionProvider,
-                    language: str, prompt: str = None,
-                    hotwords: str = None) -> str:
+                    language: str, prompt: str | None = None,
+                    hotwords: str | None = None) -> str:
     """
     Vollständige Transkription (ohne Zeitmarken) als reinen Text zurückgeben.
     """
