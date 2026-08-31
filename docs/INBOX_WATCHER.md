@@ -157,6 +157,11 @@ Ohne diesen expliziten Wert bleibt die automatische Veröffentlichung aus. Bei
 einem Uploadfehler bleibt der Transkriptionsjob `DONE` und wird beim nächsten
 Timerlauf erneut zur Veröffentlichung angeboten.
 
+Die Pipeline holt solche liegengebliebenen `DONE`-Jobs zu Beginn eines Laufs
+nach. Anschließend veröffentlicht sie jedes neu erzeugte Transkript unmittelbar
+nach dessen `DONE`-Status. Ein langes späteres Diktat hält damit früher fertige
+Transkripte nicht mehr von Drive zurück.
+
 ## Projektverteilung planen (v0.3 Dry-Run)
 
 `route_transcripts.py` plant die projektbezogene Verteilung bereits erfolgreich
