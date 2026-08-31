@@ -328,7 +328,8 @@ def main(argv: list[str] | None = None) -> int:
             }
             staged = [stage_ready_file(db, args.source, args.staging_dir, drive_id, now)
                       for drive_id in args.stage_id]
-    except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError,
+            subprocess.CalledProcessError) as exc:
         logger.error("Scan fehlgeschlagen: %s", exc)
         return 1
 

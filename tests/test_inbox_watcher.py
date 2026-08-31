@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from inbox_watcher import classify, load_listing, open_state, stage_ready_file, staging_name
+from inbox_watcher import (classify, load_listing, main as watcher_main, open_state,
+                           stage_ready_file, staging_name)
 
 
 def audio(drive_id, path, digest, size=100):
@@ -71,6 +72,11 @@ class InboxWatcherTest(unittest.TestCase):
         with patch("inbox_watcher.subprocess.run", return_value=result):
             with self.assertRaisesRegex(RuntimeError, "invalid_grant: token expired"):
                 load_listing("gdrive:", None)
+
+    def test_main_handles_listing_runtime_error(self):
+        with patch("inbox_watcher.load_listing", side_effect=RuntimeError("Drive offline")):
+            result = watcher_main(["--state-dir", self.temp.name])
+        self.assertEqual(result, 1)
 
     def test_staging_uses_exact_id_and_verifies_download(self):
         content = b"hello"
