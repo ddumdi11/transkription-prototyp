@@ -37,6 +37,26 @@ für lange/technische Diktate gezielt `gpt-4o-transcribe` (Details in der Tabell
   Liste ist kommagetrennt, beispielsweise `--hotwords "Traktat, MyOwnCents"`.
   Hotwords beeinflussen die Erkennung; sie ersetzen den Text nicht nachträglich.
 
+### Zentrales Projektglossar
+
+`project_glossary.json` ist die gemeinsame Quelle für projektspezifisches
+Vokabular. Ein Eintrag kann gleichzeitig Hotwords, sichere Erkennungsfehler und
+Routingvarianten definieren. Pipeline, GUI, Textersetzungen und Routing lesen
+diese Datei automatisch. Ein abweichender Pfad kann über
+`AUDIOREC_GLOSSARY=/pfad/zum/glossar.json` gesetzt werden.
+
+Beispiel:
+
+```json
+{
+  "canonical": "Traktat",
+  "hotwords": ["Traktat"],
+  "replacements": ["Taktat"]
+}
+```
+
+Umgebungswerte wie `AUDIOREC_HOTWORDS` bleiben bewusste vollständige Overrides.
+
 ## Vorbereitung
 
 1. Python 3.10+ installieren.

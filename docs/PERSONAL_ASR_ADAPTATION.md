@@ -7,6 +7,11 @@ separate Hotword-Liste. Die automatische Pipeline liest sie aus
 `AUDIOREC_PROMPT` und `AUDIOREC_HOTWORDS`; die GUI speichert beide Angaben in
 ihren Einstellungen.
 
+Die Standardwerte und sicheren Ersetzungen stammen aus
+`project_glossary.json`. Routingvarianten können dort demselben kanonischen
+Begriff und einem oder mehreren Projekten zugeordnet werden. Damit bleibt das
+projektspezifische Vokabular an einer zentralen Stelle prüfbar.
+
 Hotwords sind Hinweise für die Erkennung. Sie sind keine Textersetzungen und
 belegen daher allein noch nicht, dass ein Wort falsch erkannt oder korrigiert
 wurde.

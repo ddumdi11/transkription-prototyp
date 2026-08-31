@@ -1,0 +1,44 @@
+{
+  "terms": [
+    {
+      "canonical": "Diktiergerät",
+      "hotwords": ["Diktiergerät"],
+      "replacements": ["Deklärgerät"]
+    },
+    {
+      "canonical": "Claude",
+      "hotwords": ["Claude"],
+      "replacements": ["Cloud"]
+    },
+    {
+      "canonical": "Claude Code",
+      "hotwords": ["Claude Code"],
+      "replacements": ["Cloud Code"]
+    },
+    {
+      "canonical": "Claude AI",
+      "hotwords": ["Claude AI"],
+      "replacements": ["Cloud AI"]
+    },
+    {
+      "canonical": "KI",
+      "hotwords": ["KI"]
+    },
+    {
+      "canonical": "Traktat",
+      "hotwords": ["Traktat"],
+      "replacements": ["Taktat"]
+    },
+    {
+      "canonical": "IT-Dienstleistungen Probephase",
+      "hotwords": [
+        "IT-Dienstleistungen Probephase",
+        "KI-/IT-Lotse",
+        "KI-Lotse",
+        "IT-Lotse"
+      ],
+      "routing_aliases": ["KI-/IT-Lotse", "KI-Lotse", "IT-Lotse"],
+      "projects": ["IT-Dienstleistungen Probephase"]
+    }
+  ]
+}

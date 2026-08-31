@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 import merge_collect as mc
+from project_glossary import glossary_hotwords, glossary_prompt
 
 # .env laden für API-Key Check
 load_dotenv()
@@ -69,9 +70,9 @@ class TranscriptionGUI:
         # Variablen für Optionen
         self.input_folder = tk.StringVar(value=settings.get("input_folder", "input"))
         self.output_folder = tk.StringVar(value=settings.get("output_folder", "output"))
-        self.prompt = tk.StringVar(value=settings.get(
-            "prompt", "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"))
-        self.hotwords = tk.StringVar(value=settings.get("hotwords", "Traktat"))
+        self.prompt = tk.StringVar(value=settings.get("prompt", glossary_prompt()))
+        self.hotwords = tk.StringVar(value=settings.get(
+            "hotwords", ", ".join(glossary_hotwords())))
         self.move_after_join = tk.BooleanVar(value=settings.get("move_after_join", True))
         self.force_retranscribe = tk.BooleanVar(value=False)
 

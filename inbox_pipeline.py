@@ -13,11 +13,12 @@ import time
 from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_state,
                            setup_logging, stage_ready_file)
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
+from project_glossary import glossary_hotwords, glossary_prompt
 
 PROMPT = os.environ.get(
-    "AUDIOREC_PROMPT", "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
+    "AUDIOREC_PROMPT", glossary_prompt()
 )
-HOTWORDS = os.environ.get("AUDIOREC_HOTWORDS", "Traktat")
+HOTWORDS = os.environ.get("AUDIOREC_HOTWORDS", ", ".join(glossary_hotwords()))
 SOURCE = os.environ.get("AUDIOREC_SOURCE", "gdrive:AudioRec Recordings")
 STATE_DIR = Path(".inbox-watcher")
 STAGING_DIR = Path("staging/inbox")

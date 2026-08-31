@@ -18,6 +18,7 @@ from correction import (
     split_into_chunks,
 )
 from providers import TranscriptionProvider, get_provider
+from project_glossary import glossary_replacements
 
 # Untergrenze für die LLM-Antwortlänge relativ zum Original (Plan §6):
 # kürzere Antworten gelten als "verschluckter" Inhalt -> Original behalten.
@@ -29,13 +30,8 @@ AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".webm"}
 # Provider-Limit übergeben wird).
 MAX_FILE_SIZE_MB = 25
 
-# Standard-Ersetzungen für häufige Erkennungsfehler
-DEFAULT_REPLACEMENTS = {
-    "Deklärgerät": "Diktiergerät",
-    "Cloud": "Claude",
-    "Cloud Code": "Claude Code",
-    "Cloud AI": "Claude AI",
-}
+# Standard-Ersetzungen aus der zentralen Projektvokabular-Datei.
+DEFAULT_REPLACEMENTS = glossary_replacements()
 
 
 def apply_replacements(text: str, replacements: dict[str, str]) -> str:
