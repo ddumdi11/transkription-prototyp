@@ -24,6 +24,43 @@ STAGING_DIR = Path("staging/inbox")
 OUTPUT_DIR = Path("staging/transcripts")
 TRANSCRIPTS_TARGET = os.environ.get("AUDIOREC_TRANSCRIPTS_TARGET")
 AUTO_PUBLISH = os.environ.get("AUDIOREC_AUTO_PUBLISH") == "1"
+AUTH_ALERT = STATE_DIR / "rclone-auth-required"
+AUTH_ALERT_COOLDOWN = 6 * 60 * 60
+
+
+def clear_auth_alert() -> None:
+    """Allow a future auth incident to notify again after a successful scan."""
+    AUTH_ALERT.unlink(missing_ok=True)
+
+
+def notify_auth_failure(exc: Exception, logger, now: float | None = None) -> bool:
+    """Persist and rate-limit a desktop warning for an expired Drive login."""
+    if "invalid_grant" not in str(exc).lower():
+        return False
+
+    now = time.time() if now is None else now
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        last_notified = float(AUTH_ALERT.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        last_notified = None
+
+    if last_notified is not None and now - last_notified < AUTH_ALERT_COOLDOWN:
+        return False
+
+    AUTH_ALERT.write_text(f"{now}\n", encoding="utf-8")
+
+    message = "Google Drive neu anmelden: rclone config reconnect gdrive:"
+    try:
+        subprocess.run(
+            ["notify-send", "--urgency=critical", "AudioRec benötigt Anmeldung", message],
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as notify_exc:
+        logger.warning("Desktop-Benachrichtigung fehlgeschlagen: %s", notify_exc)
+    logger.error("Rclone-Anmeldung erforderlich. %s", message)
+    return True
 
 
 def activate_from_id(db: sqlite3.Connection, drive_id: str) -> float:
@@ -127,6 +164,7 @@ def main() -> int:
     logger = setup_logging(STATE_DIR)
     try:
         listing = load_listing(SOURCE, None)
+        clear_auth_alert()
         now = time.time()
         with open_state(STATE_DIR / "state.sqlite3") as db:
             ensure_pipeline_state(db)
@@ -162,6 +200,7 @@ def main() -> int:
                 failures += publish_pending(db, TRANSCRIPTS_TARGET, logger)
             return 1 if failures else 0
     except Exception as exc:
+        notify_auth_failure(exc, logger)
         logger.exception("Pipeline fehlgeschlagen: %s", exc)
         return 1
 

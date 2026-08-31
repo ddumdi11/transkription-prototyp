@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from inbox_pipeline import (activate_from_id, activation_cutoff, ensure_pipeline_state,
-                            pending_ready, publish_pending)
+                            notify_auth_failure, pending_ready, publish_pending)
 from inbox_watcher import classify, open_state
 
 
@@ -63,6 +63,23 @@ class InboxPipelineTest(unittest.TestCase):
             failures = publish_pending(self.db, "gdrive,target:", logger)
         self.assertEqual(failures, 0)
         publish.assert_called_once_with(self.db, "gdrive,target:", "new", unittest.mock.ANY)
+
+    def test_auth_notification_is_persistent_and_rate_limited(self):
+        logger = Mock()
+        marker = Path(self.temp.name) / "auth-required"
+        with (patch("inbox_pipeline.STATE_DIR", Path(self.temp.name)),
+              patch("inbox_pipeline.AUTH_ALERT", marker),
+              patch("inbox_pipeline.subprocess.run") as run):
+            self.assertTrue(notify_auth_failure(RuntimeError("invalid_grant"), logger, 1000))
+            self.assertFalse(notify_auth_failure(RuntimeError("invalid_grant"), logger, 1100))
+        run.assert_called_once()
+        self.assertTrue(marker.exists())
+
+    def test_unrelated_failure_does_not_notify(self):
+        logger = Mock()
+        with patch("inbox_pipeline.subprocess.run") as run:
+            self.assertFalse(notify_auth_failure(RuntimeError("network timeout"), logger, 1000))
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

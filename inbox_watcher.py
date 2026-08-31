@@ -134,7 +134,12 @@ def load_listing(source: str, listing_file: Path | None) -> list[dict[str, Any]]
         raw = listing_file.read_text(encoding="utf-8")
     else:
         command = ["rclone", "lsjson", source, "--files-only", "--hash"]
-        result = subprocess.run(command, check=True, text=True, capture_output=True)
+        result = subprocess.run(command, check=False, text=True, capture_output=True)
+        if result.returncode:
+            detail = result.stderr.strip() or result.stdout.strip() or "keine Detailausgabe"
+            raise RuntimeError(
+                f"rclone lsjson fehlgeschlagen (Exit {result.returncode}): {detail}"
+            )
         raw = result.stdout
     value = json.loads(raw)
     if not isinstance(value, list):
@@ -323,7 +328,8 @@ def main(argv: list[str] | None = None) -> int:
             }
             staged = [stage_ready_file(db, args.source, args.staging_dir, drive_id, now)
                       for drive_id in args.stage_id]
-    except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError,
+            subprocess.CalledProcessError) as exc:
         logger.error("Scan fehlgeschlagen: %s", exc)
         return 1
 
