@@ -99,20 +99,25 @@ def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now:
     return transcript
 
 
+def publish_completed(db: sqlite3.Connection, target: str, drive_id: str, logger) -> int:
+    """Publish one completed job without stopping later transcription jobs."""
+    try:
+        name, uploaded = publish_one(db, target, drive_id, time.time())
+        logger.info("Job PUBLISHED id=%s remote=%r upload=%s",
+                    drive_id, name, "neu" if uploaded else "bereits vorhanden")
+        return 0
+    except Exception as exc:
+        logger.exception("Publish FAILED id=%s: %s", drive_id, exc)
+        return 1
+
+
 def publish_pending(db: sqlite3.Connection, target: str, logger) -> int:
     ensure_publish_state(db)
     jobs = pending_publications(db)
     logger.info("Auto-Veröffentlichung: %d neuer DONE-Job(s)", len(jobs))
-    failures = 0
-    for job in jobs:
-        try:
-            name, uploaded = publish_one(db, target, job["drive_id"], time.time())
-            logger.info("Job PUBLISHED id=%s remote=%r upload=%s",
-                        job["drive_id"], name, "neu" if uploaded else "bereits vorhanden")
-        except Exception as exc:
-            failures += 1
-            logger.exception("Publish FAILED id=%s: %s", job["drive_id"], exc)
-    return failures
+    return sum(
+        publish_completed(db, target, job["drive_id"], logger) for job in jobs
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -142,6 +147,12 @@ def main() -> int:
             jobs = pending_ready(db, cutoff)
             logger.info("Auto-Transkription: %d neuer READY-Job(s)", len(jobs))
             failures = 0
+            if AUTO_PUBLISH:
+                if not TRANSCRIPTS_TARGET:
+                    raise ValueError(
+                        "AUDIOREC_AUTO_PUBLISH=1, aber AUDIOREC_TRANSCRIPTS_TARGET fehlt"
+                    )
+                failures += publish_pending(db, TRANSCRIPTS_TARGET, logger)
             for job in jobs:
                 try:
                     audio_path, downloaded = stage_ready_file(
@@ -151,15 +162,13 @@ def main() -> int:
                                 "geladen" if downloaded else "vorhanden")
                     transcript = transcribe_one(db, job["drive_id"], audio_path, time.time())
                     logger.info("Job DONE id=%s transcript=%s", job["drive_id"], transcript)
+                    if AUTO_PUBLISH:
+                        failures += publish_completed(
+                            db, TRANSCRIPTS_TARGET, job["drive_id"], logger
+                        )
                 except Exception as exc:
                     failures += 1
                     logger.exception("Job FAILED id=%s: %s", job["drive_id"], exc)
-            if AUTO_PUBLISH:
-                if not TRANSCRIPTS_TARGET:
-                    raise ValueError(
-                        "AUDIOREC_AUTO_PUBLISH=1, aber AUDIOREC_TRANSCRIPTS_TARGET fehlt"
-                    )
-                failures += publish_pending(db, TRANSCRIPTS_TARGET, logger)
             return 1 if failures else 0
     except Exception as exc:
         logger.exception("Pipeline fehlgeschlagen: %s", exc)

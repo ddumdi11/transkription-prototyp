@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from inbox_pipeline import (activate_from_id, activation_cutoff, ensure_pipeline_state,
-                            pending_ready, publish_pending)
+                            pending_ready, publish_completed, publish_pending)
 from inbox_watcher import classify, open_state
 
 
@@ -63,6 +63,26 @@ class InboxPipelineTest(unittest.TestCase):
             failures = publish_pending(self.db, "gdrive,target:", logger)
         self.assertEqual(failures, 0)
         publish.assert_called_once_with(self.db, "gdrive,target:", "new", unittest.mock.ANY)
+
+    def test_publish_completed_uploads_exact_job(self):
+        logger = Mock()
+        with patch("inbox_pipeline.publish_one", return_value=("new.md", True)) as publish:
+            failures = publish_completed(
+                self.db, "gdrive,target:", "drive-id", logger
+            )
+        self.assertEqual(failures, 0)
+        publish.assert_called_once_with(
+            self.db, "gdrive,target:", "drive-id", unittest.mock.ANY
+        )
+
+    def test_publish_completed_failure_is_deferred_without_raising(self):
+        logger = Mock()
+        with patch("inbox_pipeline.publish_one", side_effect=RuntimeError("Drive offline")):
+            failures = publish_completed(
+                self.db, "gdrive,target:", "drive-id", logger
+            )
+        self.assertEqual(failures, 1)
+        logger.exception.assert_called_once()
 
 
 if __name__ == "__main__":
