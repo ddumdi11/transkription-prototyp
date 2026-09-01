@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 import merge_collect as mc
+from project_glossary import glossary_hotwords, glossary_prompt
 
 # .env laden für API-Key Check
 load_dotenv()
@@ -52,6 +53,16 @@ WORKFLOW_TEXT_SINGLE = "▶ Kompletter Workflow (Einzeltranskription)"
 WORKFLOW_TEXT_JOIN = "▶ Kompletter Workflow (Zusammenfügen + Transkription)"
 
 
+def setting_or_env(settings: dict, key: str, env_key: str, fallback) -> str:
+    """Resolve saved setting, then environment, evaluating fallback last."""
+    if key in settings:
+        return settings[key]
+    explicit = os.environ.get(env_key)
+    if explicit is not None:
+        return explicit
+    return fallback()
+
+
 class TranscriptionGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -69,9 +80,15 @@ class TranscriptionGUI:
         # Variablen für Optionen
         self.input_folder = tk.StringVar(value=settings.get("input_folder", "input"))
         self.output_folder = tk.StringVar(value=settings.get("output_folder", "output"))
-        self.prompt = tk.StringVar(value=settings.get(
-            "prompt", "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"))
-        self.hotwords = tk.StringVar(value=settings.get("hotwords", "Traktat"))
+        prompt = setting_or_env(
+            settings, "prompt", "AUDIOREC_PROMPT", glossary_prompt
+        )
+        hotwords = setting_or_env(
+            settings, "hotwords", "AUDIOREC_HOTWORDS",
+            lambda: ", ".join(glossary_hotwords()),
+        )
+        self.prompt = tk.StringVar(value=prompt)
+        self.hotwords = tk.StringVar(value=hotwords)
         self.move_after_join = tk.BooleanVar(value=settings.get("move_after_join", True))
         self.force_retranscribe = tk.BooleanVar(value=False)
 

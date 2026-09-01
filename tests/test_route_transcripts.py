@@ -80,6 +80,31 @@ class RouteTranscriptsTest(unittest.TestCase):
         self.assertEqual(recording_number("Aufnahme #570.wav"), 570)
         self.assertIsNone(recording_number("Meeting.wav"))
 
+    def test_glossary_routes_it_lotse_variants_to_probephase_project(self):
+        self.add_published("Platzhalter")
+        row = published_transcripts(self.db)[0]
+        transcript = Path(row["transcript_path"])
+        config_path = self.root / "routing.json"
+        config_path.write_text(json.dumps({
+            "default_projects": [],
+            "active_projects": [],
+            "project_rules": [],
+            "topic_rules": {},
+        }), encoding="utf-8")
+
+        for variant in (
+            "IT-Dienstleistungen Probephase", "KI-/IT-Lotse", "KI-Lotse", "IT-Lotse"
+        ):
+            with self.subTest(variant=variant):
+                transcript.write_text(
+                    f"Heute arbeite ich als {variant} beim Kunden.", encoding="utf-8"
+                )
+                projects = [
+                    project["name"]
+                    for project in plan_one(row, load_config(config_path))["projects"]
+                ]
+                self.assertEqual(projects, ["IT-Dienstleistungen Probephase"])
+
     def test_load_config_rejects_malformed_nested_rules(self):
         base = {
             "default_projects": ["Z04"],

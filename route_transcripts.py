@@ -13,6 +13,7 @@ from typing import Any
 
 from inbox_watcher import open_state, setup_logging
 from publish_transcripts import prepare_publish_state
+from project_glossary import glossary_project_rules
 
 STATE_DIR = Path(".inbox-watcher")
 CONFIG_PATH = Path(os.environ.get(
@@ -51,6 +52,7 @@ def load_config(path: Path) -> dict[str, Any]:
                 or not terms
                 or not all(isinstance(term, str) and term.strip() for term in terms)):
             raise ValueError(f"topic_rules[{topic!r}] muss eine Textliste sein")
+    config["project_rules"].extend(glossary_project_rules())
     return config
 
 
