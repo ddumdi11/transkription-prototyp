@@ -67,6 +67,21 @@ def published_transcripts(db: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def published_transcript(db: sqlite3.Connection, drive_id: str) -> sqlite3.Row:
+    row = db.execute(
+        """SELECT p.drive_id, p.remote_path, p.published_at,
+                  j.transcript_path, f.path AS audio_path
+           FROM published_transcripts p
+           JOIN transcription_jobs j USING (drive_id)
+           JOIN files f USING (drive_id)
+           WHERE p.drive_id = ?""",
+        (drive_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Veröffentlichtes Transkript ist unbekannt: {drive_id}")
+    return row
+
+
 def recording_number(path: str) -> int | None:
     match = NUMBER_PATTERN.search(path)
     return int(match.group(1)) if match else None
@@ -115,6 +130,13 @@ def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
         ],
         "topics": topics,
     }
+
+
+def plan_published(
+    db: sqlite3.Connection, drive_id: str, config: dict[str, Any]
+) -> dict[str, Any]:
+    """Create the deterministic routing plan for one published transcript."""
+    return plan_one(published_transcript(db, drive_id), config)
 
 
 def selected(row: sqlite3.Row, args: argparse.Namespace) -> bool:
