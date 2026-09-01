@@ -6,7 +6,7 @@ from pathlib import Path
 from inbox_watcher import open_state
 from publish_transcripts import prepare_publish_state
 from route_transcripts import (load_config, plan_one, published_transcripts,
-                               recording_number)
+                               plan_published, recording_number)
 
 
 class RouteTranscriptsTest(unittest.TestCase):
@@ -75,6 +75,19 @@ class RouteTranscriptsTest(unittest.TestCase):
         self.add_published("Test")
         self.assertEqual([row["drive_id"] for row in published_transcripts(self.db)],
                          ["drive-id"])
+
+    def test_plan_published_selects_exact_drive_id(self):
+        self.add_published("KI-Lotse beim Kunden")
+        config = {
+            "default_projects": [], "active_projects": [],
+            "project_rules": [
+                {"project": "IT-Dienstleistungen Probephase", "match_any": ["KI-Lotse"]}
+            ],
+            "topic_rules": {},
+        }
+        plan = plan_published(self.db, "drive-id", config)
+        self.assertEqual(plan["recording_number"], 565)
+        self.assertEqual(plan["projects"][0]["name"], "IT-Dienstleistungen Probephase")
 
     def test_recording_number_handles_unknown_names(self):
         self.assertEqual(recording_number("Aufnahme #570.wav"), 570)

@@ -168,6 +168,13 @@ Transkripte nicht mehr von Drive zurück.
 veröffentlichter Transkripte. Das kanonische Transkript in `AudioRec Transcripts`
 bleibt unverändert. Der Dry-Run kopiert keine Datei und ändert nichts auf Drive.
 
+Nach jeder erfolgreichen automatischen Veröffentlichung erzeugt die Pipeline
+denselben Routingplan für genau dieses Transkript und schreibt Projekte,
+Begründungen und Themen ins Journal. Dieser Schritt ist weiterhin rein beratend:
+Er kopiert keine Dateien und verändert Drive nicht. Ein Routingfehler wird als
+`Routing FAILED` protokolliert, ändert aber weder `PUBLISHED` noch die weitere
+Transkriptionswarteschlange.
+
 Die lokale, von Git ausgeschlossene Konfiguration wird einmalig aus dem Beispiel
 angelegt:
 

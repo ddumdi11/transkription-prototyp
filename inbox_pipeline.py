@@ -14,6 +14,7 @@ from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_s
                            setup_logging, stage_ready_file)
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
 from project_glossary import glossary_hotwords, glossary_prompt
+from route_transcripts import CONFIG_PATH as ROUTING_CONFIG, load_config, plan_published
 
 PROMPT = os.environ.get("AUDIOREC_PROMPT")
 if PROMPT is None:
@@ -145,10 +146,31 @@ def publish_completed(db: sqlite3.Connection, target: str, drive_id: str, logger
         name, uploaded = publish_one(db, target, drive_id, time.time())
         logger.info("Job PUBLISHED id=%s remote=%r upload=%s",
                     drive_id, name, "neu" if uploaded else "bereits vorhanden")
+        log_routing_plan(db, drive_id, logger)
         return 0
     except Exception as exc:
         logger.exception("Publish FAILED id=%s: %s", drive_id, exc)
         return 1
+
+
+def log_routing_plan(db: sqlite3.Connection, drive_id: str, logger) -> bool:
+    """Log advisory project routing without changing Drive or job status."""
+    try:
+        plan = plan_published(db, drive_id, load_config(ROUTING_CONFIG))
+        topics = ",".join(plan["topics"]) or "-"
+        logger.info(
+            "Job ROUTED id=%s path=%r topics=%s",
+            drive_id, plan["audio_path"], topics,
+        )
+        for project in plan["projects"]:
+            logger.info(
+                "  -> %s [%s]",
+                project["name"], "; ".join(project["reasons"]),
+            )
+        return True
+    except Exception as exc:
+        logger.exception("Routing FAILED id=%s: %s", drive_id, exc)
+        return False
 
 
 def publish_pending(db: sqlite3.Connection, target: str, logger) -> int:

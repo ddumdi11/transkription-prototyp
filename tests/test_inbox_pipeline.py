@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from inbox_pipeline import (activate_from_id, activation_cutoff, ensure_pipeline_state,
-                            notify_auth_failure, pending_ready, publish_completed,
-                            publish_pending)
+                            log_routing_plan, notify_auth_failure, pending_ready,
+                            publish_completed, publish_pending)
 from inbox_watcher import classify, open_state
 
 
@@ -67,7 +67,8 @@ class InboxPipelineTest(unittest.TestCase):
 
     def test_publish_completed_uploads_exact_job(self):
         logger = Mock()
-        with patch("inbox_pipeline.publish_one", return_value=("new.md", True)) as publish:
+        with (patch("inbox_pipeline.publish_one", return_value=("new.md", True)) as publish,
+              patch("inbox_pipeline.log_routing_plan") as route):
             failures = publish_completed(
                 self.db, "gdrive,target:", "drive-id", logger
             )
@@ -75,6 +76,7 @@ class InboxPipelineTest(unittest.TestCase):
         publish.assert_called_once_with(
             self.db, "gdrive,target:", "drive-id", unittest.mock.ANY
         )
+        route.assert_called_once_with(self.db, "drive-id", logger)
 
     def test_publish_completed_failure_is_deferred_without_raising(self):
         logger = Mock()
@@ -83,6 +85,32 @@ class InboxPipelineTest(unittest.TestCase):
                 self.db, "gdrive,target:", "drive-id", logger
             )
         self.assertEqual(failures, 1)
+        logger.exception.assert_called_once()
+
+    def test_log_routing_plan_reports_projects_and_topics(self):
+        logger = Mock()
+        plan = {
+            "audio_path": "Aufnahme #626.wav",
+            "topics": ["workflow-test"],
+            "projects": [
+                {"name": "Z04", "reasons": ["default"]},
+                {"name": "IT-Dienstleistungen Probephase",
+                 "reasons": ["content:KI-Lotse"]},
+            ],
+        }
+        with (patch("inbox_pipeline.load_config", return_value={}),
+              patch("inbox_pipeline.plan_published", return_value=plan)):
+            result = log_routing_plan(self.db, "drive-id", logger)
+        self.assertTrue(result)
+        messages = [call.args[0] for call in logger.info.call_args_list]
+        self.assertEqual(messages, ["Job ROUTED id=%s path=%r topics=%s", "  -> %s [%s]",
+                                    "  -> %s [%s]"])
+
+    def test_log_routing_failure_does_not_raise(self):
+        logger = Mock()
+        with patch("inbox_pipeline.load_config", side_effect=ValueError("bad config")):
+            result = log_routing_plan(self.db, "drive-id", logger)
+        self.assertFalse(result)
         logger.exception.assert_called_once()
 
     def test_auth_notification_is_persistent_and_rate_limited(self):
