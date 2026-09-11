@@ -57,6 +57,10 @@ Beispiel:
 
 Umgebungswerte wie `AUDIOREC_HOTWORDS` bleiben bewusste vollständige Overrides.
 
+Die wichtigsten technischen Begriffe werden im [gestuften Lernplan für lokale
+KI und den digitalen Check](docs/LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md)
+erklärt und an der bestehenden Pipeline praktisch wiederholt.
+
 ## Vorbereitung
 
 1. Python 3.10+ installieren.

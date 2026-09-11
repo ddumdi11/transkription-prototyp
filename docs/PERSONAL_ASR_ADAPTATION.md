@@ -16,6 +16,10 @@ Hotwords sind Hinweise für die Erkennung. Sie sind keine Textersetzungen und
 belegen daher allein noch nicht, dass ein Wort falsch erkannt oder korrigiert
 wurde.
 
+Der gestufte [Lernplan für lokale KI und den digitalen
+Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben
+kanonischen Fachbegriffe als Vorbereitung auf Erklärungen und Kundengespräche.
+
 ## Nächster Ausbauschritt: Korrekturbeispiele sammeln
 
 Für eine spätere persönliche Modellanpassung soll die App bestätigte

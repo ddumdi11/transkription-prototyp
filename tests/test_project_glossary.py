@@ -19,8 +19,27 @@ class ProjectGlossaryTest(unittest.TestCase):
         )
         self.assertEqual(
             service_rule["match_any"],
-            ["IT-Dienstleistungen Probephase", "KI-/IT-Lotse", "KI-Lotse", "IT-Lotse"],
+            [
+                "IT-Dienstleistungen Probephase", "KI-/IT-Lotse", "KI-Lotse",
+                "IT-Lotse", "Digitaler Check",
+            ],
         )
+
+    def test_observed_personal_and_technical_terms_are_available(self):
+        glossary = load_glossary(Path("project_glossary.json"))
+        hotwords = glossary_hotwords(glossary)
+        replacements = glossary_replacements(glossary)
+
+        for term in (
+            "Z-System", "Abbildwerkstatt", "Lullipulli", "Qwen", "Job Queue",
+            "Checkpointing", "idempotent", "GGUF", "Bitwarden", "IHK",
+        ):
+            self.assertIn(term, hotwords)
+        self.assertEqual(replacements["Set-System"], "Z-System")
+        self.assertEqual(replacements["Quen"], "Qwen")
+        self.assertEqual(replacements["Job-Kühe"], "Job Queue")
+        self.assertEqual(replacements["Bitwaden"], "Bitwarden")
+        self.assertEqual(replacements["IRK"], "IHK")
 
     def test_rejects_ambiguous_replacement(self):
         data = {
