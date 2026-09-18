@@ -41,6 +41,16 @@ class ProjectGlossaryTest(unittest.TestCase):
         self.assertEqual(replacements["Bitwaden"], "Bitwarden")
         self.assertEqual(replacements["IRK"], "IHK")
 
+    def test_cloud_terms_are_not_ambiguously_replaced_with_claude(self):
+        glossary = load_glossary(Path("project_glossary.json"))
+        replacements = glossary_replacements(glossary)
+
+        self.assertNotIn("Cloud", replacements)
+        self.assertNotIn("Cloud Code", replacements)
+        self.assertNotIn("Cloud AI", replacements)
+        self.assertIn("Claude", glossary_hotwords(glossary))
+        self.assertIn("Claude Code", glossary_hotwords(glossary))
+
     def test_rejects_ambiguous_replacement(self):
         data = {
             "terms": [

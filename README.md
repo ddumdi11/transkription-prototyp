@@ -444,9 +444,13 @@ Dies hilft besonders bei:
 Das Skript korrigiert automatisch bekannte Erkennungsfehler:
 
 - `Deklärgerät` → `Diktiergerät`
-- `Cloud` → `Claude`
-- `Cloud Code` → `Claude Code`
-- `Cloud AI` → `Claude AI`
+- `Deklärgerät` → `Diktiergerät`
+- `Taktat` → `Traktat`
+- `Job-Kühe` → `Job Queue`
+
+Mehrdeutige Wörter wie `Cloud` werden bewusst nicht automatisch ersetzt.
+`Claude`, `Claude Code` und `Claude AI` bleiben stattdessen Hotwords für die
+Spracherkennung.
 
 Du kannst die Ersetzungen in der Datei `transcribe.py` (Zeilen 28-33) anpassen oder mit `--no-replacements` deaktivieren.
 

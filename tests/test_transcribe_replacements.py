@@ -1,5 +1,7 @@
 import unittest
+from pathlib import Path
 
+from project_glossary import glossary_replacements, load_glossary
 from transcribe import apply_replacements
 
 
@@ -17,6 +19,15 @@ class ApplyReplacementsTest(unittest.TestCase):
         self.assertEqual(
             apply_replacements("Quentin bleibt unverändert.", {"Quen": "Qwen"}),
             "Quentin bleibt unverändert.",
+        )
+
+    def test_preserves_legitimate_cloud_wording(self):
+        replacements = glossary_replacements(
+            load_glossary(Path("project_glossary.json"))
+        )
+        self.assertEqual(
+            apply_replacements("Lokale KI oder Cloud", replacements),
+            "Lokale KI oder Cloud",
         )
 
 

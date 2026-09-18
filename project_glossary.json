@@ -7,18 +7,15 @@
     },
     {
       "canonical": "Claude",
-      "hotwords": ["Claude"],
-      "replacements": ["Cloud"]
+      "hotwords": ["Claude"]
     },
     {
       "canonical": "Claude Code",
-      "hotwords": ["Claude Code"],
-      "replacements": ["Cloud Code"]
+      "hotwords": ["Claude Code"]
     },
     {
       "canonical": "Claude AI",
-      "hotwords": ["Claude AI"],
-      "replacements": ["Cloud AI"]
+      "hotwords": ["Claude AI"]
     },
     {
       "canonical": "KI",
