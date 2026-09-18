@@ -18,7 +18,9 @@ wurde.
 
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben
-kanonischen Fachbegriffe als Vorbereitung auf Erklärungen und Kundengespräche.
+kanonischen Fachbegriffe als dauerhafte Referenz für Erklärungen und
+Kundengespräche. Sein Zeitplan dokumentiert die Vorbereitung im September
+2026 und ist nicht mehr aktuell.
 
 ## Nächster Ausbauschritt: Korrekturbeispiele sammeln
 

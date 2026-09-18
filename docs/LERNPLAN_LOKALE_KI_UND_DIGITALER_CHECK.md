@@ -2,9 +2,10 @@
 
 Stand: 11. September 2026
 
-Ziel: fachliche Vorbereitung auf das Gespräch am 16. September und zugleich
-Aufbau eines praktisch erprobbaren Angebots für die IT-Dienstleistungen
-Probephase.
+Ursprüngliches Ziel: fachliche Vorbereitung auf das Gespräch am 16. September
+2026 und zugleich Aufbau eines praktisch erprobbaren Angebots für die
+IT-Dienstleistungen Probephase. Die Lernstufen und Kernkarten bleiben als
+fachliche Referenz erhalten.
 
 ## Lernprinzip
 
@@ -158,7 +159,10 @@ Stundensatz von 59 Euro bleibt eine zu prüfende Arbeitshypothese.
 Den digitalen Check in fünf Minuten als Kundengespräch erklären: Nutzen,
 Ablauf, Grenzen, Datenschutz und das konkrete Ergebnis nach einer Stunde.
 
-## Zeitplan bis zum 16. September
+## Historischer Zeitplan bis zum 16. September 2026
+
+Die folgenden Termine dokumentieren die damalige Vorbereitung und sind kein
+aktueller Ablaufplan.
 
 - **11. September:** Stufe 1 lesen und als Sprachnotiz erklären.
 - **12. September:** Stufe 1 wiederholen, dann Stufe 2 bearbeiten.

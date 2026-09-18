@@ -59,7 +59,9 @@ Umgebungswerte wie `AUDIOREC_HOTWORDS` bleiben bewusste vollständige Overrides.
 
 Die wichtigsten technischen Begriffe werden im [gestuften Lernplan für lokale
 KI und den digitalen Check](docs/LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md)
-erklärt und an der bestehenden Pipeline praktisch wiederholt.
+als dauerhafte Referenz erklärt und an der bestehenden Pipeline praktisch
+wiederholt. Der darin enthaltene Zeitplan dokumentiert die Vorbereitung im
+September 2026 und ist nicht mehr aktuell.
 
 ## Vorbereitung
 
@@ -443,7 +445,6 @@ Dies hilft besonders bei:
 
 Das Skript korrigiert automatisch bekannte Erkennungsfehler:
 
-- `Deklärgerät` → `Diktiergerät`
 - `Deklärgerät` → `Diktiergerät`
 - `Taktat` → `Traktat`
 - `Job-Kühe` → `Job Queue`
