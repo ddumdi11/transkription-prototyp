@@ -16,6 +16,15 @@ Hotwords sind Hinweise für die Erkennung. Sie sind keine Textersetzungen und
 belegen daher allein noch nicht, dass ein Wort falsch erkannt oder korrigiert
 wurde.
 
+Die lokale Transkriptionsschnittstelle bewahrt inzwischen die von
+faster-whisper gelieferten Segmenttexte und Zeitgrenzen. Mit
+`--write-segments` entsteht neben dem Markdown eine Begleitdatei
+`<Name>.segments.json`. Sie enthält stabile Segment-IDs, Start-/Endzeit, den
+unbearbeiteten ASR-Text und separat den Text nach sicheren
+Glossarersetzungen. Die automatische Inbox-Pipeline aktiviert diese Ausgabe
+und trägt die eindeutige Drive-ID als `source_id` ein. Sie akzeptiert einen Job
+nur mit vorhandener Segmentdatei als abgeschlossen.
+
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben
 kanonischen Fachbegriffe als dauerhafte Referenz für Erklärungen und
@@ -34,11 +43,11 @@ besteht mindestens aus:
 - bestätigtem Korrekturtext,
 - betroffenem Begriff und Erstellungszeitpunkt.
 
-Die Transkriptionsschnittstelle muss dafür zunächst Segmenttexte und
-Zeitstempel erhalten, statt sie sofort zu einem einzigen Text zu verbinden.
-Erst eine bestätigte Ersetzung löst das verlustfreie Ausschneiden des
-Audiosegments und das Schreiben einer Metadatendatei aus. Reine Hotword-Treffer
-werden nicht automatisch als Trainingsbeispiele behandelt.
+Die technische Grundlage aus Segmenttext und Zeitstempeln ist damit vorhanden.
+Als nächster Schritt soll erst eine bestätigte Ersetzung das verlustfreie
+Ausschneiden des Audiosegments und das Schreiben einer Trainings-Metadatendatei
+auslösen. Reine Hotword-Treffer werden nicht automatisch als Trainingsbeispiele
+behandelt.
 
 Vorgesehene Drive-Struktur:
 

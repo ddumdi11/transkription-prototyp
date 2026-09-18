@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -97,9 +98,28 @@ def pending_ready(db: sqlite3.Connection, cutoff: float) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def validate_segment_metadata(path: Path, drive_id: str) -> None:
+    """Reject missing, damaged or stale segment sidecars."""
+    if not path.exists():
+        raise RuntimeError(f"Segmentdaten wurden nicht erzeugt: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Segmentdaten sind nicht lesbar: {path}") from exc
+    if payload.get("schema_version") != 1:
+        raise RuntimeError(f"Unbekannte Segmentdaten-Version: {path}")
+    if payload.get("source_id") != drive_id:
+        raise RuntimeError(
+            f"Segmentdaten gehören nicht zu Drive-ID {drive_id}: {path}"
+        )
+    if not isinstance(payload.get("segments"), list):
+        raise RuntimeError(f"Segmentliste fehlt oder ist ungültig: {path}")
+
+
 def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now: float) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     transcript = OUTPUT_DIR / f"{audio_path.stem}.md"
+    segments = OUTPUT_DIR / f"{audio_path.stem}.segments.json"
     previous = db.execute(
         "SELECT attempts FROM transcription_jobs WHERE drive_id = ?", (drive_id,)
     ).fetchone()
@@ -117,7 +137,8 @@ def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now:
     command = [
         ".venv/bin/python", "transcribe.py", str(audio_path),
         "--output-dir", str(OUTPUT_DIR), "--provider", "local", "--model", "medium",
-        "--prompt", PROMPT, "--metadata-header",
+        "--prompt", PROMPT, "--metadata-header", "--write-segments",
+        "--source-id", drive_id,
     ]
     if HOTWORDS.strip():
         command.extend(["--hotwords", HOTWORDS])
@@ -125,6 +146,7 @@ def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now:
         subprocess.run(command, check=True)
         if not transcript.exists():
             raise RuntimeError(f"Transkript wurde nicht erzeugt: {transcript}")
+        validate_segment_metadata(segments, drive_id)
     except Exception as exc:
         db.execute(
             "UPDATE transcription_jobs SET status='FAILED', last_error=?, updated_at=? WHERE drive_id=?",

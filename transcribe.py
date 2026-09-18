@@ -1,11 +1,12 @@
 import argparse
+import json
 import os
 import re
 import subprocess
 import tempfile
 import time
 from datetime import datetime
-from math import ceil
+from math import ceil, isfinite
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -17,7 +18,12 @@ from correction import (
     build_corrector,
     split_into_chunks,
 )
-from providers import TranscriptionProvider, get_provider
+from providers import (
+    TranscriptSegment,
+    TranscriptionProvider,
+    TranscriptionResult,
+    get_provider,
+)
 from project_glossary import glossary_replacements
 
 # Untergrenze für die LLM-Antwortlänge relativ zum Original (Plan §6):
@@ -207,10 +213,24 @@ def top_level_subfolder(audio: Path, root: Path) -> Path | None:
     return root / rel.parts[0]
 
 
-def transcript_exists(audio_path: Path, output_dir: Path, suffix: str) -> bool:
-    """Prüft, ob bereits ein Transkript für diese Audio-Datei existiert."""
+def segment_metadata_path(audio_path: Path, output_dir: Path) -> Path:
+    """Pfad der maschinenlesbaren Segment-Begleitdatei."""
+    return output_dir / f"{audio_path.stem}.segments.json"
+
+
+def transcript_exists(
+    audio_path: Path,
+    output_dir: Path,
+    suffix: str,
+    require_segments: bool = False,
+) -> bool:
+    """Prüft, ob alle für diesen Lauf verlangten Ausgaben existieren."""
     transcript_path = output_dir / (audio_path.stem + suffix)
-    return transcript_path.exists()
+    if not transcript_path.exists():
+        return False
+    return not require_segments or segment_metadata_path(
+        audio_path, output_dir
+    ).exists()
 
 
 def get_audio_duration(path: Path) -> float:
@@ -307,12 +327,12 @@ def split_audio_file(audio_path: Path, max_size_mb: float | None = MAX_FILE_SIZE
 
 def transcribe_file(audio_path: Path, provider: TranscriptionProvider,
                     language: str, prompt: str | None = None,
-                    hotwords: str | None = None) -> str:
+                    hotwords: str | None = None) -> TranscriptionResult:
     """
-    Vollständige Transkription (ohne Zeitmarken) als reinen Text zurückgeben.
+    Vollständige Transkription mit optionalen Zeitsegmenten zurückgeben.
     """
     print(f"-> Transkribiere: {audio_path.name} ...")
-    return provider.transcribe(
+    return provider.transcribe_with_segments(
         audio_path, language=language, prompt=prompt, hotwords=hotwords
     )
 
@@ -348,6 +368,62 @@ def write_transcript(
     return out_path
 
 
+def write_segment_metadata(
+    audio_path: Path,
+    transcript_path: Path,
+    segments: tuple[TranscriptSegment, ...],
+    output_dir: Path,
+    provider_name: str,
+    model_name: str,
+    language: str,
+    replacements: dict[str, str],
+    source_id: str | None = None,
+) -> Path:
+    """Schreibt stabile Zeitsegmente atomar als JSON-Begleitdatei.
+
+    ``raw_text`` bewahrt die unmittelbare ASR-Ausgabe. ``text`` enthält nur
+    die deterministischen, bestätigten Glossarersetzungen. Eine optionale
+    freie LLM-Nachkorrektur wird bewusst nicht auf Segmente zurückprojiziert.
+    """
+    items = []
+    for index, segment in enumerate(segments, 1):
+        start = float(segment.start)
+        end = float(segment.end)
+        if not isfinite(start) or not isfinite(end) or start < 0 or end < start:
+            raise ValueError(
+                f"Ungültige Zeitgrenzen für Segment {index}: {start}–{end}"
+            )
+        raw_text = segment.text.strip()
+        items.append({
+            "id": f"segment-{index:06d}",
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "raw_text": raw_text,
+            "text": apply_replacements(raw_text, replacements),
+        })
+
+    payload = {
+        "schema_version": 1,
+        "audio_file": audio_path.name,
+        "transcript_file": transcript_path.name,
+        "provider": provider_name,
+        "model": model_name,
+        "language": language,
+        "source_id": source_id,
+        "segments": items,
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = segment_metadata_path(audio_path, output_dir)
+    temp_path = out_path.with_name(f"{out_path.name}.tmp")
+    temp_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temp_path.replace(out_path)
+    print(f"   [OK] Segmente gespeichert als: {out_path} ({len(items)})")
+    return out_path
+
+
 def collect_audio_files(input_path: Path) -> list[Path]:
     """
     Sammelt alle Audio-Dateien in einem Ordner (rekursiv) oder gibt
@@ -376,7 +452,10 @@ def collect_audio_files(input_path: Path) -> list[Path]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Einfache Voll-Transkription von Diktiergerät-Audiodateien (ohne Zeitmarken)."
+        description=(
+            "Voll-Transkription von Diktiergerät-Audiodateien mit optionalen "
+            "Segmentzeitmarken."
+        )
     )
     parser.add_argument(
         "input",
@@ -428,6 +507,22 @@ def main():
         help=(
             "Metadaten-Kopf je Transkript schreiben (Aufnahme-Nr., Datum, "
             "Modell, Quelle, Status). Für den Einzeldatei-Workflow gedacht."
+        ),
+    )
+    parser.add_argument(
+        "--write-segments",
+        action="store_true",
+        help=(
+            "Zusätzlich <Name>.segments.json mit Segment-IDs, Start-/Endzeit "
+            "und Rohtext schreiben (derzeit Provider local)."
+        ),
+    )
+    parser.add_argument(
+        "--source-id",
+        default=None,
+        help=(
+            "Optionale stabile Quell-ID für die Segmentdatei; wird von der "
+            "Inbox-Pipeline mit der Drive-ID gesetzt."
         ),
     )
     parser.add_argument(
@@ -506,6 +601,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.write_segments and args.provider != "local":
+        parser.error("--write-segments wird derzeit nur vom Provider local unterstützt")
 
     # .env laden (für CORRECTION_*; OpenAIProvider lädt zusätzlich selbst).
     load_dotenv()
@@ -588,7 +686,12 @@ def main():
                     "Kopie, bitte erneut kopieren")
 
             # Prüfen ob bereits transkribiert
-            if not args.force and transcript_exists(audio, output_dir, args.suffix):
+            if not args.force and transcript_exists(
+                audio,
+                output_dir,
+                args.suffix,
+                require_segments=args.write_segments,
+            ):
                 print(f"[SKIP] Ueberspringe (bereits vorhanden): {audio.name}")
                 skipped += 1
                 if src_folder:
@@ -617,21 +720,38 @@ def main():
                 parts = split_audio_file(
                     audio, max_size_mb=size_limit, max_duration_seconds=dur_limit)
                 all_texts = []
+                all_segments: list[TranscriptSegment] = []
+                part_offsets = []
+                segment_offset = 0.0
+                for part in parts:
+                    part_offsets.append(segment_offset)
+                    segment_offset += get_audio_duration(part)
 
                 t_transcribe = time.perf_counter()
-                for part in parts:
-                    text = transcribe_file(
+                for part, part_offset in zip(parts, part_offsets):
+                    part_result = transcribe_file(
                         part,
                         provider=provider,
                         language=args.language,
                         prompt=args.prompt,
                         hotwords=args.hotwords,
                     )
-                    all_texts.append(text)
+                    all_texts.append(part_result.text)
+                    all_segments.extend(
+                        TranscriptSegment(
+                            start=segment.start + part_offset,
+                            end=segment.end + part_offset,
+                            text=segment.text,
+                        )
+                        for segment in part_result.segments
+                    )
                 transcribe_seconds = time.perf_counter() - t_transcribe
 
                 # Alle Teile zusammenfügen
-                text = "\n\n".join(all_texts)
+                result = TranscriptionResult(
+                    text="\n\n".join(all_texts),
+                    segments=tuple(all_segments),
+                )
 
                 # Temporäre Dateien aufräumen
                 for part in parts:
@@ -643,7 +763,7 @@ def main():
             else:
                 # Normale Transkription
                 t_transcribe = time.perf_counter()
-                text = transcribe_file(
+                result = transcribe_file(
                     audio,
                     provider=provider,
                     language=args.language,
@@ -653,7 +773,7 @@ def main():
                 transcribe_seconds = time.perf_counter() - t_transcribe
 
             # Post-Processing: Ersetzungen anwenden
-            text = apply_replacements(text, replacements)
+            text = apply_replacements(result.text, replacements)
 
             # Optionale LLM-Nachkorrektur (defensiv: Fehler -> Original behalten).
             if corrector is not None:
@@ -676,6 +796,22 @@ def main():
                 header=header,
                 timing=format_run_timing(transcribe_seconds, audio_duration),
             )
+            if args.write_segments:
+                model_name = str(
+                    getattr(provider, "model", None)
+                    or getattr(provider, "model_size", "?")
+                )
+                write_segment_metadata(
+                    audio_path=audio,
+                    transcript_path=out_path,
+                    segments=result.segments,
+                    output_dir=output_dir,
+                    provider_name=provider.name,
+                    model_name=model_name,
+                    language=args.language,
+                    replacements=replacements,
+                    source_id=args.source_id,
+                )
             processed += 1
             if src_folder:
                 folder_ok.setdefault(src_folder, True)

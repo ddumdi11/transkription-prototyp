@@ -55,7 +55,10 @@ Aufruf ist idempotent. Drive wird dabei weder gelöscht noch verschoben.
 `inbox_pipeline.py` verarbeitet nur `READY`-Originale ab einer explizit
 gesetzten Aktivierungsgrenze. Erfolgreiche Jobs werden persistent gespeichert
 und nicht wiederholt. Dubletten werden nie verarbeitet. Audio und Transkripte
-bleiben zunächst lokal unter `staging/`; Drive wird nicht verändert.
+bleiben zunächst lokal unter `staging/`; Drive wird nicht verändert. Neben dem
+Markdown erzeugt die lokale Engine `<Name>.segments.json` mit Zeitgrenzen und
+Rohtext jedes faster-whisper-Segments sowie der eindeutigen Drive-ID als
+`source_id`. Ein Job wird nur `DONE`, wenn beide Dateien geschrieben wurden.
 
 Die Vorlagen unter `systemd/` prüfen im Abstand von drei Minuten.
 
@@ -161,6 +164,11 @@ Die Pipeline holt solche liegengebliebenen `DONE`-Jobs zu Beginn eines Laufs
 nach. Anschließend veröffentlicht sie jedes neu erzeugte Transkript unmittelbar
 nach dessen `DONE`-Status. Ein langes späteres Diktat hält damit früher fertige
 Transkripte nicht mehr von Drive zurück.
+
+Die Veröffentlichung lädt vorerst weiterhin nur das kanonische
+Markdown-Transkript hoch. Die Segmentdatei bleibt lokal unter
+`staging/transcripts/`, bis die geplante Bestätigung von Korrekturbeispielen und
+die Übergabe an das Z-System ein eigenes, geprüftes Ziel erhalten.
 
 ## Projektverteilung planen (v0.3 Dry-Run)
 

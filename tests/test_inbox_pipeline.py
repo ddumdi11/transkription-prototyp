@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,7 +6,8 @@ from unittest.mock import Mock, patch
 
 from inbox_pipeline import (activate_from_id, activation_cutoff, ensure_pipeline_state,
                             log_routing_plan, notify_auth_failure, pending_ready,
-                            publish_completed, publish_pending)
+                            publish_completed, publish_pending, transcribe_one,
+                            validate_segment_metadata)
 from inbox_watcher import classify, open_state
 
 
@@ -48,6 +50,78 @@ class InboxPipelineTest(unittest.TestCase):
         )
         self.db.commit()
         self.assertEqual(pending_ready(self.db, cutoff), [])
+
+    def test_transcribe_one_requires_and_requests_segment_metadata(self):
+        audio_path = Path(self.temp.name) / "Aufnahme #1__drive-id.wav"
+        audio_path.write_bytes(b"audio")
+        output_dir = Path(self.temp.name) / "transcripts"
+
+        def create_outputs(command, check):
+            self.assertTrue(check)
+            self.assertIn("--write-segments", command)
+            source_index = command.index("--source-id")
+            self.assertEqual(command[source_index + 1], "drive-id")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / f"{audio_path.stem}.md").write_text(
+                "Transkript", encoding="utf-8"
+            )
+            (output_dir / f"{audio_path.stem}.segments.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "source_id": "drive-id",
+                    "segments": [],
+                }),
+                encoding="utf-8",
+            )
+
+        with (patch("inbox_pipeline.OUTPUT_DIR", output_dir),
+              patch("inbox_pipeline.subprocess.run", side_effect=create_outputs)):
+            transcript = transcribe_one(
+                self.db, "drive-id", audio_path, now=1000
+            )
+
+        self.assertEqual(transcript, output_dir / f"{audio_path.stem}.md")
+        row = self.db.execute(
+            "SELECT status FROM transcription_jobs WHERE drive_id='drive-id'"
+        ).fetchone()
+        self.assertEqual(row["status"], "DONE")
+
+    def test_transcribe_one_fails_when_segment_metadata_is_missing(self):
+        audio_path = Path(self.temp.name) / "Aufnahme #2__drive-id.wav"
+        audio_path.write_bytes(b"audio")
+        output_dir = Path(self.temp.name) / "transcripts"
+
+        def create_transcript_only(_command, check):
+            self.assertTrue(check)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / f"{audio_path.stem}.md").write_text(
+                "Transkript", encoding="utf-8"
+            )
+
+        with (patch("inbox_pipeline.OUTPUT_DIR", output_dir),
+              patch("inbox_pipeline.subprocess.run",
+                    side_effect=create_transcript_only)):
+            with self.assertRaisesRegex(RuntimeError, "Segmentdaten"):
+                transcribe_one(self.db, "drive-id", audio_path, now=1000)
+
+        row = self.db.execute(
+            "SELECT status FROM transcription_jobs WHERE drive_id='drive-id'"
+        ).fetchone()
+        self.assertEqual(row["status"], "FAILED")
+
+    def test_segment_metadata_must_match_drive_id(self):
+        path = Path(self.temp.name) / "segments.json"
+        path.write_text(
+            json.dumps({
+                "schema_version": 1,
+                "source_id": "other-id",
+                "segments": [],
+            }),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Drive-ID drive-id"):
+            validate_segment_metadata(path, "drive-id")
 
     def test_publish_pending_processes_done_job(self):
         item = audio("new", "new.wav", "bbb")
