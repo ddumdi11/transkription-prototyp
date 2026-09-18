@@ -57,6 +57,12 @@ Beispiel:
 
 Umgebungswerte wie `AUDIOREC_HOTWORDS` bleiben bewusste vollständige Overrides.
 
+Die wichtigsten technischen Begriffe werden im [gestuften Lernplan für lokale
+KI und den digitalen Check](docs/LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md)
+als dauerhafte Referenz erklärt und an der bestehenden Pipeline praktisch
+wiederholt. Der darin enthaltene Zeitplan dokumentiert die Vorbereitung im
+September 2026 und ist nicht mehr aktuell.
+
 ## Vorbereitung
 
 1. Python 3.10+ installieren.
@@ -440,9 +446,12 @@ Dies hilft besonders bei:
 Das Skript korrigiert automatisch bekannte Erkennungsfehler:
 
 - `Deklärgerät` → `Diktiergerät`
-- `Cloud` → `Claude`
-- `Cloud Code` → `Claude Code`
-- `Cloud AI` → `Claude AI`
+- `Taktat` → `Traktat`
+- `Job-Kühe` → `Job Queue`
+
+Mehrdeutige Wörter wie `Cloud` werden bewusst nicht automatisch ersetzt.
+`Claude`, `Claude Code` und `Claude AI` bleiben stattdessen Hotwords für die
+Spracherkennung.
 
 Du kannst die Ersetzungen in der Datei `transcribe.py` (Zeilen 28-33) anpassen oder mit `--no-replacements` deaktivieren.
 

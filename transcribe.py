@@ -44,8 +44,10 @@ def apply_replacements(text: str, replacements: dict[str, str]) -> str:
 
     result = text
     for wrong, correct in replacements.items():
-        # Ersetze exakte Übereinstimmungen (case-sensitive)
-        result = result.replace(wrong, correct)
+        # Nur vollständige Begriffe ersetzen. So verändert etwa die bestätigte
+        # Fehlform "Quen" keine längeren Namen oder Wörter, die sie enthalten.
+        pattern = rf"(?<!\w){re.escape(wrong)}(?!\w)"
+        result = re.sub(pattern, lambda _match: correct, result)
 
     return result
 

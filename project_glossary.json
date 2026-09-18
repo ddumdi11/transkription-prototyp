@@ -7,18 +7,15 @@
     },
     {
       "canonical": "Claude",
-      "hotwords": ["Claude"],
-      "replacements": ["Cloud"]
+      "hotwords": ["Claude"]
     },
     {
       "canonical": "Claude Code",
-      "hotwords": ["Claude Code"],
-      "replacements": ["Cloud Code"]
+      "hotwords": ["Claude Code"]
     },
     {
       "canonical": "Claude AI",
-      "hotwords": ["Claude AI"],
-      "replacements": ["Cloud AI"]
+      "hotwords": ["Claude AI"]
     },
     {
       "canonical": "KI",
@@ -35,10 +32,117 @@
         "IT-Dienstleistungen Probephase",
         "KI-/IT-Lotse",
         "KI-Lotse",
-        "IT-Lotse"
+        "IT-Lotse",
+        "Digitaler Check"
       ],
-      "routing_aliases": ["KI-/IT-Lotse", "KI-Lotse", "IT-Lotse"],
+      "routing_aliases": [
+        "KI-/IT-Lotse",
+        "KI-Lotse",
+        "IT-Lotse",
+        "Digitaler Check"
+      ],
       "projects": ["IT-Dienstleistungen Probephase"]
+    },
+    {
+      "canonical": "Z-System",
+      "hotwords": ["Z-System"],
+      "replacements": ["Set-System"]
+    },
+    {
+      "canonical": "Abbildwerkstatt",
+      "hotwords": ["Abbildwerkstatt"]
+    },
+    {
+      "canonical": "Lullipulli",
+      "hotwords": ["Lullipulli"]
+    },
+    {
+      "canonical": "Trialogon",
+      "hotwords": ["Trialogon"]
+    },
+    {
+      "canonical": "MyOwn2Cents",
+      "hotwords": ["MyOwn2Cents"]
+    },
+    {
+      "canonical": "Qwen",
+      "hotwords": ["Qwen"],
+      "replacements": ["Quen"]
+    },
+    {
+      "canonical": "Job Queue",
+      "hotwords": ["Job Queue"],
+      "replacements": ["Job-Kühe"]
+    },
+    {
+      "canonical": "Checkpointing",
+      "hotwords": ["Checkpointing", "Checkpoint"]
+    },
+    {
+      "canonical": "Idempotenz",
+      "hotwords": ["Idempotenz", "idempotent"]
+    },
+    {
+      "canonical": "GGUF",
+      "hotwords": ["GGUF"]
+    },
+    {
+      "canonical": "OpenRouter",
+      "hotwords": ["OpenRouter"]
+    },
+    {
+      "canonical": "OpenCode",
+      "hotwords": ["OpenCode"]
+    },
+    {
+      "canonical": "n8n",
+      "hotwords": ["n8n"]
+    },
+    {
+      "canonical": "Embeddings",
+      "hotwords": ["Embeddings"]
+    },
+    {
+      "canonical": "RAG",
+      "hotwords": ["RAG"]
+    },
+    {
+      "canonical": "Theory of Mind",
+      "hotwords": ["Theory of Mind"]
+    },
+    {
+      "canonical": "Sycophancy",
+      "hotwords": ["Sycophancy"]
+    },
+    {
+      "canonical": "Schulz von Thun",
+      "hotwords": ["Schulz von Thun"]
+    },
+    {
+      "canonical": "Vier-Ohren-Modell",
+      "hotwords": ["Vier-Ohren-Modell"]
+    },
+    {
+      "canonical": "Bitwarden",
+      "hotwords": ["Bitwarden"],
+      "replacements": ["Bitwaden"]
+    },
+    {
+      "canonical": "KeePass",
+      "hotwords": ["KeePass"]
+    },
+    {
+      "canonical": "Syncthing",
+      "hotwords": ["Syncthing"]
+    },
+    {
+      "canonical": "VoiceMeeter Banana",
+      "hotwords": ["VoiceMeeter Banana"]
+    },
+    {
+      "canonical": "IHK",
+      "hotwords": ["IHK"],
+      "replacements": ["IRK"]
     }
   ]
 }

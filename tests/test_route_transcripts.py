@@ -106,7 +106,8 @@ class RouteTranscriptsTest(unittest.TestCase):
         }), encoding="utf-8")
 
         for variant in (
-            "IT-Dienstleistungen Probephase", "KI-/IT-Lotse", "KI-Lotse", "IT-Lotse"
+            "IT-Dienstleistungen Probephase", "KI-/IT-Lotse", "KI-Lotse",
+            "IT-Lotse", "Digitaler Check",
         ):
             with self.subTest(variant=variant):
                 transcript.write_text(
