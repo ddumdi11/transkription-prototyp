@@ -44,10 +44,17 @@ besteht mindestens aus:
 - betroffenem Begriff und Erstellungszeitpunkt.
 
 Die technische Grundlage aus Segmenttext und Zeitstempeln ist damit vorhanden.
-Als nächster Schritt soll erst eine bestätigte Ersetzung das verlustfreie
-Ausschneiden des Audiosegments und das Schreiben einer Trainings-Metadatendatei
-auslösen. Reine Hotword-Treffer werden nicht automatisch als Trainingsbeispiele
-behandelt.
+`create_correction_sample.py` plant zunächst ohne Schreibzugriff, welches
+Segment zu einem bestätigten Begriff gehört. Nur ein ausdrückliches `--confirm`
+schneidet diesen Zeitbereich per FFmpeg ohne Neukodierung aus und schreibt eine
+Trainings-Metadatendatei mit Drive-ID, Rohtext, normalisiertem Text,
+bestätigtem Korrekturtext und SHA256. Mehrdeutige Treffer müssen durch eine
+Segment-ID aufgelöst werden. Reine Hotword-Treffer werden nicht automatisch als
+Trainingsbeispiele behandelt.
+
+Die Beispiele bleiben zunächst lokal unter `staging/training-samples/`. Eine
+Prüfansicht in der GUI und ein kontrollierter Drive-Upload sind spätere
+Ausbauschritte.
 
 Vorgesehene Drive-Struktur:
 
