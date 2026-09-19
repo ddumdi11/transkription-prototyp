@@ -170,6 +170,20 @@ Markdown-Transkript hoch. Die Segmentdatei bleibt lokal unter
 `staging/transcripts/`, bis die geplante Bestätigung von Korrekturbeispielen und
 die Übergabe an das Z-System ein eigenes, geprüftes Ziel erhalten.
 
+## Bestätigte Korrekturbeispiele vorbereiten
+
+`create_correction_sample.py` verbindet eine lokale Aufnahme ausdrücklich mit
+ihrer validierten Segmentdatei. Ohne `--confirm` zeigt es nur den Plan. Ein
+eindeutig vorkommender bestätigter Begriff wählt sein Segment automatisch;
+mehrere Treffer erfordern `--segment-id`. Erst mit `--confirm` wird der
+Zeitbereich per FFmpeg ohne Neukodierung nach `staging/training-samples/`
+ausgeschnitten und zusammen mit Herkunft, Drive-ID, Rohtext, bestätigt
+korrigiertem Text und SHA256 dokumentiert.
+
+Ein bloßer Hotword-Treffer löst diesen Vorgang niemals aus. Das Werkzeug ändert
+keinen Pipeline-Status, keine Aufnahme und kein kanonisches Transkript. Ein
+Drive-Upload der Trainingsbeispiele ist noch nicht aktiviert.
+
 ## Projektverteilung planen (v0.3 Dry-Run)
 
 `route_transcripts.py` plant die projektbezogene Verteilung bereits erfolgreich

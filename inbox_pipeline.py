@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-from math import isfinite
 import os
 from pathlib import Path
 import sqlite3
@@ -17,6 +15,7 @@ from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_s
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
 from project_glossary import glossary_hotwords, glossary_prompt
 from route_transcripts import CONFIG_PATH as ROUTING_CONFIG, load_config, plan_published
+from segment_metadata import SegmentMetadataError, load_segment_metadata
 
 PROMPT = os.environ.get("AUDIOREC_PROMPT")
 if PROMPT is None:
@@ -101,43 +100,10 @@ def pending_ready(db: sqlite3.Connection, cutoff: float) -> list[sqlite3.Row]:
 
 def validate_segment_metadata(path: Path, drive_id: str) -> None:
     """Reject missing, damaged or stale segment sidecars."""
-    if not path.exists():
-        raise RuntimeError(f"Segmentdaten wurden nicht erzeugt: {path}")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Segmentdaten sind nicht lesbar: {path}") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Segmentdaten sind kein JSON-Objekt: {path}")
-    if payload.get("schema_version") != 1:
-        raise RuntimeError(f"Unbekannte Segmentdaten-Version: {path}")
-    if payload.get("source_id") != drive_id:
-        raise RuntimeError(
-            f"Segmentdaten gehören nicht zu Drive-ID {drive_id}: {path}"
-        )
-    segments = payload.get("segments")
-    if not isinstance(segments, list):
-        raise RuntimeError(f"Segmentliste fehlt oder ist ungültig: {path}")
-    for index, segment in enumerate(segments, 1):
-        if not isinstance(segment, dict):
-            raise RuntimeError(f"Segment {index} ist kein Objekt: {path}")
-        if any(
-            not isinstance(segment.get(field), str)
-            for field in ("id", "raw_text", "text")
-        ):
-            raise RuntimeError(f"Segment {index} enthält ungültigen Text: {path}")
-        start = segment.get("start")
-        end = segment.get("end")
-        timestamps = (start, end)
-        if (
-            any(isinstance(value, bool) or not isinstance(value, (int, float))
-                for value in timestamps)
-            or any(isinstance(value, float) and not isfinite(value)
-                   for value in timestamps)
-            or start < 0
-            or end < start
-        ):
-            raise RuntimeError(f"Segment {index} enthält ungültige Zeiten: {path}")
+        load_segment_metadata(path, expected_source_id=drive_id)
+    except SegmentMetadataError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now: float) -> Path:

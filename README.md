@@ -264,6 +264,24 @@ Die fertigen Transkripte findest du in `output/` als `.md`-Dateien. Mit
 maschinenlesbare Datei `<Name>.segments.json` mit Segment-IDs, Start-/Endzeit,
 ASR-Rohtext und dem Text nach sicheren Glossarersetzungen.
 
+Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
+Dry-Run geplant werden:
+
+```bash
+.venv/bin/python create_correction_sample.py \
+  "staging/inbox/Aufnahme #1__DRIVE-ID.wav" \
+  "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json" \
+  --term "Traktat"
+```
+
+Erst derselbe Aufruf mit `--confirm` schreibt den Audioausschnitt ohne
+Neukodierung sowie seine JSON-Metadaten nach `staging/training-samples/`. Kommt
+der Begriff in mehreren Segmenten vor, muss zusätzlich `--segment-id` angegeben
+werden. Der FFmpeg-Timeout wird aus der Segmentdauer abgeleitet und kann für
+langsame Systeme mit `--timeout-seconds` überschrieben werden. Das Werkzeug
+lädt nichts auf Drive und verändert weder das kanonische Transkript noch die
+Aufnahme.
+
 #### transcribe.py Optionen
 
 | Option | Beschreibung |
