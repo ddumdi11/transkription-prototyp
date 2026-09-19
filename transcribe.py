@@ -393,13 +393,14 @@ def write_segment_metadata(
             raise ValueError(
                 f"Ungültige Zeitgrenzen für Segment {index}: {start}–{end}"
             )
-        raw_text = segment.text.strip()
+        raw_text = segment.text
+        normalized_text = raw_text.strip()
         items.append({
             "id": f"segment-{index:06d}",
             "start": round(start, 3),
             "end": round(end, 3),
             "raw_text": raw_text,
-            "text": apply_replacements(raw_text, replacements),
+            "text": apply_replacements(normalized_text, replacements),
         })
 
     payload = {

@@ -23,7 +23,7 @@ class SegmentMetadataTest(unittest.TestCase):
             audio_path=self.audio,
             transcript_path=self.transcript,
             segments=(
-                TranscriptSegment(0.12349, 2.34567, "Das Taktat"),
+                TranscriptSegment(0.12349, 2.34567, " Das Taktat "),
                 TranscriptSegment(2.5, 4.0, "Zweiter Abschnitt"),
             ),
             output_dir=self.output_dir,
@@ -49,7 +49,7 @@ class SegmentMetadataTest(unittest.TestCase):
                     "id": "segment-000001",
                     "start": 0.123,
                     "end": 2.346,
-                    "raw_text": "Das Taktat",
+                    "raw_text": " Das Taktat ",
                     "text": "Das Traktat",
                 },
                 {

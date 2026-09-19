@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from math import isfinite
 import os
 from pathlib import Path
 import sqlite3
@@ -106,14 +107,37 @@ def validate_segment_metadata(path: Path, drive_id: str) -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Segmentdaten sind nicht lesbar: {path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Segmentdaten sind kein JSON-Objekt: {path}")
     if payload.get("schema_version") != 1:
         raise RuntimeError(f"Unbekannte Segmentdaten-Version: {path}")
     if payload.get("source_id") != drive_id:
         raise RuntimeError(
             f"Segmentdaten gehören nicht zu Drive-ID {drive_id}: {path}"
         )
-    if not isinstance(payload.get("segments"), list):
+    segments = payload.get("segments")
+    if not isinstance(segments, list):
         raise RuntimeError(f"Segmentliste fehlt oder ist ungültig: {path}")
+    for index, segment in enumerate(segments, 1):
+        if not isinstance(segment, dict):
+            raise RuntimeError(f"Segment {index} ist kein Objekt: {path}")
+        if any(
+            not isinstance(segment.get(field), str)
+            for field in ("id", "raw_text", "text")
+        ):
+            raise RuntimeError(f"Segment {index} enthält ungültigen Text: {path}")
+        start = segment.get("start")
+        end = segment.get("end")
+        timestamps = (start, end)
+        if (
+            any(isinstance(value, bool) or not isinstance(value, (int, float))
+                for value in timestamps)
+            or any(isinstance(value, float) and not isfinite(value)
+                   for value in timestamps)
+            or start < 0
+            or end < start
+        ):
+            raise RuntimeError(f"Segment {index} enthält ungültige Zeiten: {path}")
 
 
 def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now: float) -> Path:
@@ -137,7 +161,7 @@ def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now:
     command = [
         ".venv/bin/python", "transcribe.py", str(audio_path),
         "--output-dir", str(OUTPUT_DIR), "--provider", "local", "--model", "medium",
-        "--prompt", PROMPT, "--metadata-header", "--write-segments",
+        "--prompt", PROMPT, "--metadata-header", "--write-segments", "--force",
         "--source-id", drive_id,
     ]
     if HOTWORDS.strip():

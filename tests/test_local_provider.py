@@ -53,7 +53,7 @@ class LocalWhisperProviderTest(unittest.TestCase):
         self.assertEqual(
             [(item.start, item.end, item.text) for item in result.segments],
             [
-                (0.4, 2.1, "Erster Abschnitt"),
+                (0.4, 2.1, " Erster Abschnitt "),
                 (2.3, 4.8, "Zweiter Abschnitt"),
             ],
         )

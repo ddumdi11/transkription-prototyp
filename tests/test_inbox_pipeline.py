@@ -55,13 +55,25 @@ class InboxPipelineTest(unittest.TestCase):
         audio_path = Path(self.temp.name) / "Aufnahme #1__drive-id.wav"
         audio_path.write_bytes(b"audio")
         output_dir = Path(self.temp.name) / "transcripts"
+        output_dir.mkdir(parents=True)
+        (output_dir / f"{audio_path.stem}.md").write_text(
+            "Veraltetes Transkript", encoding="utf-8"
+        )
+        (output_dir / f"{audio_path.stem}.segments.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "source_id": "falsche-id",
+                "segments": [],
+            }),
+            encoding="utf-8",
+        )
 
         def create_outputs(command, check):
             self.assertTrue(check)
             self.assertIn("--write-segments", command)
+            self.assertIn("--force", command)
             source_index = command.index("--source-id")
             self.assertEqual(command[source_index + 1], "drive-id")
-            output_dir.mkdir(parents=True, exist_ok=True)
             (output_dir / f"{audio_path.stem}.md").write_text(
                 "Transkript", encoding="utf-8"
             )
@@ -122,6 +134,39 @@ class InboxPipelineTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Drive-ID drive-id"):
             validate_segment_metadata(path, "drive-id")
+
+    def test_segment_metadata_rejects_malformed_items(self):
+        path = Path(self.temp.name) / "segments.json"
+        valid = {
+            "id": "segment-000001",
+            "start": 0.0,
+            "end": 1.0,
+            "raw_text": " Rohtext ",
+            "text": "Rohtext",
+        }
+        invalid_items = [
+            "kein Objekt",
+            {**valid, "id": 1},
+            {key: value for key, value in valid.items() if key != "raw_text"},
+            {**valid, "text": None},
+            {**valid, "start": float("nan")},
+            {**valid, "start": -0.1},
+            {**valid, "start": 2.0, "end": 1.0},
+            {**valid, "end": True},
+        ]
+
+        for item in invalid_items:
+            with self.subTest(item=item):
+                path.write_text(
+                    json.dumps({
+                        "schema_version": 1,
+                        "source_id": "drive-id",
+                        "segments": [item],
+                    }),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(RuntimeError, "Segment 1"):
+                    validate_segment_metadata(path, "drive-id")
 
     def test_publish_pending_processes_done_job(self):
         item = audio("new", "new.wav", "bbb")

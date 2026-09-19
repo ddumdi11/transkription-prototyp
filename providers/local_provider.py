@@ -127,12 +127,12 @@ class LocalWhisperProvider(TranscriptionProvider):
             TranscriptSegment(
                 start=float(seg.start),
                 end=float(seg.end),
-                text=seg.text.strip(),
+                text=seg.text,
             )
             for seg in segments
             if seg.text.strip()
         )
         return TranscriptionResult(
-            text=" ".join(segment.text for segment in captured).strip(),
+            text=" ".join(segment.text.strip() for segment in captured).strip(),
             segments=captured,
         )
