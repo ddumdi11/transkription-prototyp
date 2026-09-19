@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+from math import isfinite
 from pathlib import Path
 import re
 import subprocess
@@ -19,6 +20,8 @@ from segment_metadata import load_segment_metadata
 
 DEFAULT_OUTPUT_DIR = Path("staging/training-samples")
 SUPPORTED_AUDIO_SUFFIXES = {".wav", ".m4a", ".mp3", ".flac", ".ogg", ".webm"}
+EXTRACTION_TIMEOUT_STARTUP_SECONDS = 15.0
+EXTRACTION_TIMEOUT_REALTIME_FACTOR = 4.0
 
 
 @dataclass(frozen=True)
@@ -206,7 +209,25 @@ def _existing_sample_is_valid(plan: CorrectionSamplePlan) -> bool:
     )
 
 
-def create_sample(plan: CorrectionSamplePlan) -> tuple[Path, Path, bool]:
+def extraction_timeout(
+    duration: float,
+    configured_timeout: float | None = None,
+) -> float:
+    """Return an explicit timeout or one derived from clip duration."""
+    if configured_timeout is not None:
+        if not isfinite(configured_timeout) or configured_timeout <= 0:
+            raise ValueError("Der FFmpeg-Timeout muss eine positive Zahl sein")
+        return configured_timeout
+    return (
+        EXTRACTION_TIMEOUT_STARTUP_SECONDS
+        + duration * EXTRACTION_TIMEOUT_REALTIME_FACTOR
+    )
+
+
+def create_sample(
+    plan: CorrectionSamplePlan,
+    timeout_seconds: float | None = None,
+) -> tuple[Path, Path, bool]:
     """Losslessly extract the planned clip and atomically write its metadata."""
     if plan.output_audio.exists() or plan.output_metadata.exists():
         if _existing_sample_is_valid(plan):
@@ -223,6 +244,7 @@ def create_sample(plan: CorrectionSamplePlan) -> tuple[Path, Path, bool]:
     )
     temp_metadata = output_dir / f".{plan.output_metadata.name}.tmp"
     duration = float(plan.segment["end"]) - float(plan.segment["start"])
+    timeout = extraction_timeout(duration, timeout_seconds)
     command = [
         "ffmpeg", "-v", "error", "-y",
         "-ss", f"{float(plan.segment['start']):.3f}",
@@ -235,7 +257,13 @@ def create_sample(plan: CorrectionSamplePlan) -> tuple[Path, Path, bool]:
 
     audio_installed = False
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
         if not temp_audio.is_file() or temp_audio.stat().st_size == 0:
             raise RuntimeError("ffmpeg hat keinen verwendbaren Audioausschnitt erzeugt")
         clip_hash = _sha256(temp_audio)
@@ -275,11 +303,15 @@ def create_sample(plan: CorrectionSamplePlan) -> tuple[Path, Path, bool]:
         temp_audio.replace(plan.output_audio)
         audio_installed = True
         temp_metadata.replace(plan.output_metadata)
-    except Exception:
+    except Exception as exc:
         temp_audio.unlink(missing_ok=True)
         temp_metadata.unlink(missing_ok=True)
         if audio_installed and not plan.output_metadata.exists():
             plan.output_audio.unlink(missing_ok=True)
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = (exc.stderr or "").strip()
+            if detail:
+                raise RuntimeError(f"ffmpeg fehlgeschlagen: {detail}") from exc
         raise
 
     return plan.output_audio, plan.output_metadata, True
@@ -314,6 +346,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Audioausschnitt und Metadaten wirklich schreiben",
     )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Optionaler FFmpeg-Timeout; standardmäßig aus Segmentdauer "
+            "abgeleitet"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -332,7 +373,9 @@ def main(argv: list[str] | None = None) -> int:
         if not args.confirm:
             print("Dry-Run: keine Datei geschrieben. Mit --confirm bestätigen.")
             return 0
-        audio_path, metadata_path, created = create_sample(plan)
+        audio_path, metadata_path, created = create_sample(
+            plan, timeout_seconds=args.timeout_seconds
+        )
         state = "erstellt" if created else "bereits identisch vorhanden"
         print(f"Korrekturbeispiel {state}: {audio_path}")
         print(f"Metadaten: {metadata_path}")

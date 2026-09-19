@@ -277,8 +277,10 @@ Dry-Run geplant werden:
 Erst derselbe Aufruf mit `--confirm` schreibt den Audioausschnitt ohne
 Neukodierung sowie seine JSON-Metadaten nach `staging/training-samples/`. Kommt
 der Begriff in mehreren Segmenten vor, muss zusätzlich `--segment-id` angegeben
-werden. Das Werkzeug lädt nichts auf Drive und verändert weder das kanonische
-Transkript noch die Aufnahme.
+werden. Der FFmpeg-Timeout wird aus der Segmentdauer abgeleitet und kann für
+langsame Systeme mit `--timeout-seconds` überschrieben werden. Das Werkzeug
+lädt nichts auf Drive und verändert weder das kanonische Transkript noch die
+Aufnahme.
 
 #### transcribe.py Optionen
 

@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -51,6 +52,24 @@ class CorrectionSampleTest(unittest.TestCase):
         self.segments.write_text(
             json.dumps(self.payload, ensure_ascii=False), encoding="utf-8"
         )
+
+    def _run_confirmed_main(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (contextlib.redirect_stdout(stdout),
+              contextlib.redirect_stderr(stderr)):
+            result = main([
+                str(self.audio),
+                str(self.segments),
+                "--term", "Traktat",
+                "--output-dir", str(self.output),
+                "--confirm",
+            ])
+        return result, stdout.getvalue(), stderr.getvalue()
+
+    def _assert_no_sample_files(self):
+        files = list(self.output.iterdir()) if self.output.exists() else []
+        self.assertEqual(files, [])
 
     def test_build_plan_selects_unique_term_and_normalized_correction(self):
         plan = build_plan(
@@ -112,10 +131,11 @@ class CorrectionSampleTest(unittest.TestCase):
             self.audio, self.segments, self.output, term="Traktat"
         )
 
-        def fake_ffmpeg(command, check, capture_output, text):
+        def fake_ffmpeg(command, check, capture_output, text, timeout):
             self.assertTrue(check)
             self.assertTrue(capture_output)
             self.assertTrue(text)
+            self.assertEqual(timeout, 24.0)
             copy_index = command.index("-c:a")
             self.assertEqual(command[copy_index + 1], "copy")
             Path(command[-1]).write_bytes(b"lossless clip")
@@ -143,6 +163,114 @@ class CorrectionSampleTest(unittest.TestCase):
         rerun.assert_not_called()
         self.assertEqual(second_audio, audio_path)
         self.assertEqual(second_metadata, metadata_path)
+
+    def test_main_handles_missing_ffmpeg_without_partial_files(self):
+        def missing_ffmpeg(command, check, capture_output, text, timeout):
+            self.assertTrue(command)
+            self.assertTrue(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertGreater(timeout, 0)
+            raise FileNotFoundError("ffmpeg fehlt")
+
+        with patch(
+            "create_correction_sample.subprocess.run",
+            side_effect=missing_ffmpeg,
+        ):
+            result, _stdout, stderr = self._run_confirmed_main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("ffmpeg fehlt", stderr)
+        self._assert_no_sample_files()
+
+    def test_main_reports_ffmpeg_stderr_without_partial_files(self):
+        def failed_ffmpeg(command, check, capture_output, text, timeout):
+            self.assertTrue(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertGreater(timeout, 0)
+            raise subprocess.CalledProcessError(
+                1, command, stderr="codec failure"
+            )
+
+        with patch(
+            "create_correction_sample.subprocess.run",
+            side_effect=failed_ffmpeg,
+        ):
+            result, _stdout, stderr = self._run_confirmed_main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("codec failure", stderr)
+        self._assert_no_sample_files()
+
+    def test_main_rejects_empty_clip_without_partial_files(self):
+        def empty_ffmpeg(command, check, capture_output, text, timeout):
+            self.assertTrue(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertGreater(timeout, 0)
+            Path(command[-1]).touch()
+
+        with patch(
+            "create_correction_sample.subprocess.run",
+            side_effect=empty_ffmpeg,
+        ):
+            result, _stdout, stderr = self._run_confirmed_main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("keinen verwendbaren Audioausschnitt", stderr)
+        self._assert_no_sample_files()
+
+    def test_main_handles_timeout_and_removes_partial_clip(self):
+        def timed_out_ffmpeg(command, check, capture_output, text, timeout):
+            self.assertTrue(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            Path(command[-1]).write_bytes(b"partial clip")
+            raise subprocess.TimeoutExpired(command, timeout)
+
+        with patch(
+            "create_correction_sample.subprocess.run",
+            side_effect=timed_out_ffmpeg,
+        ):
+            result, _stdout, stderr = self._run_confirmed_main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("timed out", stderr)
+        self._assert_no_sample_files()
+
+    def test_metadata_install_failure_rolls_back_audio_and_temporary_files(self):
+        plan = build_plan(
+            self.audio, self.segments, self.output, term="Traktat"
+        )
+        original_replace = Path.replace
+
+        def fake_ffmpeg(command, check, capture_output, text, timeout):
+            self.assertTrue(check)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertGreater(timeout, 0)
+            Path(command[-1]).write_bytes(b"lossless clip")
+
+        def fail_metadata_install(source, target):
+            if source.name == f".{plan.output_metadata.name}.tmp":
+                raise OSError("metadata install failed")
+            return original_replace(source, target)
+
+        with (patch(
+                "create_correction_sample.subprocess.run",
+                side_effect=fake_ffmpeg,
+              ),
+              patch.object(
+                  Path,
+                  "replace",
+                  autospec=True,
+                  side_effect=fail_metadata_install,
+              )):
+            with self.assertRaisesRegex(OSError, "metadata install failed"):
+                create_sample(plan)
+
+        self._assert_no_sample_files()
 
     def test_rejects_audio_from_another_sidecar(self):
         self.payload["audio_file"] = "andere.wav"
