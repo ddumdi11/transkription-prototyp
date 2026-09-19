@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from .base import TranscriptionProvider
+from .base import TranscriptSegment, TranscriptionProvider, TranscriptionResult
 
 # faster-whisper ist eine optionale, schwergewichtige Abhängigkeit
 # (CTranslate2, lädt Modellgewichte). Reine Cloud-Nutzer sollen nichts
@@ -101,6 +101,17 @@ class LocalWhisperProvider(TranscriptionProvider):
     def transcribe(self, audio_path: Path, language: str,
                    prompt: str | None = None,
                    hotwords: str | None = None) -> str:
+        return self.transcribe_with_segments(
+            audio_path, language, prompt, hotwords
+        ).text
+
+    def transcribe_with_segments(
+        self,
+        audio_path: Path,
+        language: str,
+        prompt: str | None = None,
+        hotwords: str | None = None,
+    ) -> TranscriptionResult:
         segments, _ = self._model.transcribe(
             str(audio_path),
             language=language,
@@ -112,4 +123,16 @@ class LocalWhisperProvider(TranscriptionProvider):
             compression_ratio_threshold=self.compression_ratio_threshold,
             temperature=self.temperature,
         )
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        captured = tuple(
+            TranscriptSegment(
+                start=float(seg.start),
+                end=float(seg.end),
+                text=seg.text,
+            )
+            for seg in segments
+            if seg.text.strip()
+        )
+        return TranscriptionResult(
+            text=" ".join(segment.text.strip() for segment in captured).strip(),
+            segments=captured,
+        )

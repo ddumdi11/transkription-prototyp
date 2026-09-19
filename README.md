@@ -259,7 +259,10 @@ Gib die gewünschte Reihenfolge ein (z.B. '2,3,1' oder '2 3 1'):
 python transcribe.py input
 ```
 
-Die fertigen Transkripte findest du in `output/` als `.md`-Dateien.
+Die fertigen Transkripte findest du in `output/` als `.md`-Dateien. Mit
+`--write-segments` schreibt der lokale Provider zusätzlich je Aufnahme eine
+maschinenlesbare Datei `<Name>.segments.json` mit Segment-IDs, Start-/Endzeit,
+ASR-Rohtext und dem Text nach sicheren Glossarersetzungen.
 
 #### transcribe.py Optionen
 
@@ -274,6 +277,8 @@ Die fertigen Transkripte findest du in `output/` als `.md`-Dateien.
 | `--no-replacements` | Standard-Ersetzungen deaktivieren |
 | `--no-markdown-title` | Markdown-Titel weglassen |
 | `--metadata-header` | Metadaten-Kopf je Transkript (Aufnahme-Nr., Datum, Modell, Quelle, Status) — für den Einzeldatei-Workflow |
+| `--write-segments` | Beim lokalen Provider zusätzlich `<Name>.segments.json` mit Zeitsegmenten schreiben |
+| `--source-id` | Optionale stabile Quell-ID in der Segmentdatei; die Inbox-Pipeline setzt hier die Drive-ID |
 | `--merge-transcripts` | Je Quell-Unterordner zusätzlich ein Sammeltranskript (`<Ordnername>.md`) auf Textebene; Einzeltranskripte bleiben erhalten |
 | `--move-processed` | Quell-Unterordner nach fehlerfreiem Lauf nach `processed/` verschieben |
 | `--force` | Bereits transkribierte Dateien erneut verarbeiten |

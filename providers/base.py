@@ -1,5 +1,23 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True)
+class TranscriptSegment:
+    """Ein zeitlich begrenzter, unbearbeiteter ASR-Textabschnitt."""
+
+    start: float
+    end: float
+    text: str
+
+
+@dataclass(frozen=True)
+class TranscriptionResult:
+    """Provider-Ergebnis mit Fließtext und optionalen Zeitsegmenten."""
+
+    text: str
+    segments: tuple[TranscriptSegment, ...] = ()
 
 
 class TranscriptionProvider(ABC):
@@ -17,6 +35,22 @@ class TranscriptionProvider(ABC):
                    prompt: str | None = None,
                    hotwords: str | None = None) -> str:
         """Gibt den reinen Transkriptionstext zurück."""
+
+    def transcribe_with_segments(
+        self,
+        audio_path: Path,
+        language: str,
+        prompt: str | None = None,
+        hotwords: str | None = None,
+    ) -> TranscriptionResult:
+        """Gibt Text und, soweit verfügbar, Zeitsegmente zurück.
+
+        Provider ohne Segmentunterstützung bleiben über den leeren
+        Segment-Tupel abwärtskompatibel.
+        """
+        return TranscriptionResult(
+            text=self.transcribe(audio_path, language, prompt, hotwords)
+        )
 
     @property
     @abstractmethod
