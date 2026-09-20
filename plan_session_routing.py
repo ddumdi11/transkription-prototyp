@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
+import hashlib
 import json
 from pathlib import Path
+import re
 import sqlite3
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -22,6 +24,10 @@ from plan_transcript_sessions import (
 )
 from route_transcripts import CONFIG_PATH, load_config, matching_terms
 from segment_metadata import load_segment_metadata
+
+
+DEFAULT_MANIFEST_DIR = Path("staging/routing-manifests")
+SESSION_ID_PATTERN = re.compile(r"session-\d{8}-\d{4}-[0-9a-f]{8}")
 
 
 def add_unique(values: list[str], value: str) -> None:
@@ -160,6 +166,146 @@ def plan_session_routes(
     return [build_session_routing(session, config) for session in sessions]
 
 
+def routing_plan_hash(session: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        session,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def manifest_target(session: dict[str, Any], output_dir: Path) -> Path:
+    session_id = session.get("session_id")
+    if not isinstance(session_id, str) or not SESSION_ID_PATTERN.fullmatch(session_id):
+        raise ValueError(f"Ungültige Sitzungs-ID für Manifest: {session_id!r}")
+    return output_dir / f"routing__{session_id}.json"
+
+
+def build_confirmed_manifest(
+    session: dict[str, Any], confirmed_at: datetime | None = None
+) -> dict[str, Any]:
+    moment = confirmed_at or datetime.now(dt_timezone.utc)
+    if moment.tzinfo is None:
+        raise ValueError("Bestätigungszeit benötigt eine Zeitzone")
+    plan_hash = routing_plan_hash(session)
+    return {
+        "schema_version": 1,
+        "manifest_type": "confirmed_session_routing",
+        "manifest_key": f"{session['session_id']}:{plan_hash[:16]}",
+        "routing_plan_sha256": plan_hash,
+        "confirmed_at": moment.astimezone(dt_timezone.utc).isoformat(),
+        "confirmation": "explicit_cli",
+        "session": session,
+    }
+
+
+def existing_manifest_matches(path: Path, session: dict[str, Any]) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        return False
+    stored_session = payload.get("session")
+    if not isinstance(stored_session, dict):
+        return False
+    try:
+        stored_hash = routing_plan_hash(stored_session)
+        expected_hash = routing_plan_hash(session)
+        confirmed_at = datetime.fromisoformat(str(payload.get("confirmed_at", "")))
+    except (TypeError, ValueError):
+        return False
+    expected_key = f"{session['session_id']}:{expected_hash[:16]}"
+    return (
+        payload.get("manifest_type") == "confirmed_session_routing"
+        and payload.get("confirmation") == "explicit_cli"
+        and payload.get("manifest_key") == expected_key
+        and payload.get("routing_plan_sha256") == stored_hash == expected_hash
+        and confirmed_at.tzinfo is not None
+        and stored_session == session
+    )
+
+
+def write_confirmed_manifest(
+    session: dict[str, Any],
+    output_dir: Path,
+    confirmed_at: datetime | None = None,
+) -> tuple[Path, bool]:
+    """Atomically install one explicitly confirmed, idempotent manifest."""
+    output_dir = output_dir.expanduser().resolve()
+    target = manifest_target(session, output_dir)
+    if target.exists():
+        if existing_manifest_matches(target, session):
+            return target, False
+        raise FileExistsError(
+            "Manifest existiert bereits, stimmt aber nicht mit dem aktuellen "
+            f"Routingplan überein: {target}"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    temporary = output_dir / f".{target.name}.tmp"
+    payload = build_confirmed_manifest(session, confirmed_at)
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(target)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return target, True
+
+
+def confirm_selected_sessions(
+    sessions: list[dict[str, Any]],
+    session_ids: list[str],
+    output_dir: Path,
+    confirmed_at: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Validate all selections first, then write their local manifests."""
+    if len(session_ids) != len(set(session_ids)):
+        raise ValueError("Eine Sitzungs-ID wurde mehrfach zur Bestätigung angegeben")
+    by_id = {session["session_id"]: session for session in sessions}
+    unknown = [session_id for session_id in session_ids if session_id not in by_id]
+    if unknown:
+        raise ValueError(
+            "Unbekannte Sitzungs-ID für dieses Datum: " + ", ".join(unknown)
+        )
+
+    results = []
+    newly_created: list[Path] = []
+    output_existed = output_dir.expanduser().resolve().exists()
+    try:
+        for session_id in session_ids:
+            session = by_id[session_id]
+            path, created = write_confirmed_manifest(
+                session, output_dir, confirmed_at=confirmed_at
+            )
+            if created:
+                newly_created.append(path)
+            results.append({
+                "session_id": session_id,
+                "path": str(path),
+                "created": created,
+                "routing_plan_sha256": routing_plan_hash(session),
+            })
+    except Exception:
+        for path in newly_created:
+            path.unlink(missing_ok=True)
+        resolved_output = output_dir.expanduser().resolve()
+        if not output_existed and resolved_output.is_dir():
+            try:
+                resolved_output.rmdir()
+            except OSError:
+                pass
+        raise
+    return results
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sitzungen und ihre Segmente schreibgeschützt Projekten zuordnen"
@@ -174,6 +320,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--join-with-previous", action="append", default=[])
     parser.add_argument("--state-dir", type=Path, default=STATE_DIR)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--confirm-session", action="append", default=[], metavar="SESSION_ID",
+        help="Diese Sitzung ausdrücklich als lokales Manifest bestätigen (wiederholbar)",
+    )
+    parser.add_argument(
+        "--manifest-dir", type=Path, default=DEFAULT_MANIFEST_DIR,
+        help=f"Lokales Manifestziel (Standard: {DEFAULT_MANIFEST_DIR})",
+    )
     return parser.parse_args(argv)
 
 
@@ -197,19 +351,27 @@ def main(argv: list[str] | None = None) -> int:
                 break_before=set(args.break_before),
                 join_with_previous=set(args.join_with_previous),
             )
+        manifests = confirm_selected_sessions(
+            sessions,
+            session_ids=args.confirm_session,
+            output_dir=args.manifest_dir,
+        )
 
         if args.json:
             print(json.dumps({
-                "dry_run": True,
+                "dry_run": not bool(args.confirm_session),
                 "date": selected_date.isoformat(),
                 "timezone": args.timezone,
                 "max_gap_minutes": args.max_gap_minutes,
                 "sessions": sessions,
+                "confirmed_manifests": manifests,
             }, ensure_ascii=False, indent=2))
         else:
             logger.info(
-                "Sitzungs-Routing-Dry-Run: date=%s sessions=%d",
-                selected_date, len(sessions),
+                "Sitzungs-Routing: mode=%s date=%s sessions=%d",
+                "confirm" if args.confirm_session else "dry-run",
+                selected_date,
+                len(sessions),
             )
             for session in sessions:
                 logger.info(
@@ -231,9 +393,21 @@ def main(argv: list[str] | None = None) -> int:
                         "  topic=%s evidence_segments=%d",
                         topic["name"], len(topic["segments"]),
                     )
-            logger.info(
-                "Dry-Run beendet (keine Transkript-, Status- oder Drive-Änderung)"
-            )
+            for manifest in manifests:
+                logger.info(
+                    "manifest session=%s path=%r status=%s",
+                    manifest["session_id"], manifest["path"],
+                    "neu" if manifest["created"] else "bereits identisch",
+                )
+            if manifests:
+                logger.info(
+                    "Bestätigung beendet (lokale Manifeste; keine Transkript-, "
+                    "Status- oder Drive-Änderung)"
+                )
+            else:
+                logger.info(
+                    "Dry-Run beendet (keine Transkript-, Status- oder Drive-Änderung)"
+                )
         return 0
     except Exception as exc:
         logger.exception("Sitzungs-Routing fehlgeschlagen: %s", exc)

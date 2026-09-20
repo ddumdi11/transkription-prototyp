@@ -303,7 +303,18 @@ Auf dieser Gruppierung baut der segmentgenaue Projekt-Routingplan auf:
 Er verbindet sitzungsweite Standard- und Kontextprojekte mit konkreten
 Projekt- und Themenbelegen je Segment. Nicht durch eine Inhaltsregel erfasste
 Segmente werden ausdrücklich ausgewiesen. Auch dieser Schritt ist vollständig
-lesend und erzeugt noch keine Projektkopien oder Manifeste.
+lesend und erzeugt noch keine Projektkopien oder Manifeste. Nach manueller
+Prüfung kann genau eine angezeigte Sitzung ausdrücklich lokal bestätigt werden:
+
+```bash
+.venv/bin/python plan_session_routing.py --date 2026-09-19 \
+  --confirm-session SESSION_ID
+```
+
+Das atomar geschriebene Manifest unter `staging/routing-manifests/` enthält den
+vollständigen Plan und dessen SHA256. Identische Wiederholungen sind idempotent;
+abweichende Inhalte unter derselben Sitzungs-ID werden nicht überschrieben.
+Drive und Pipeline-Status bleiben auch dabei unverändert.
 
 #### transcribe.py Optionen
 
