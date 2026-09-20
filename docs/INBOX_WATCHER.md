@@ -264,3 +264,47 @@ fehlende oder ungültige Segmentdaten führen zu einem kontrollierten Fehler,
 statt stillschweigend einen unzuverlässigen Plan zu erzeugen. Die Sitzungs-ID
 basiert auf der ersten Aufnahme und bleibt stabil, wenn später weitere
 Aufnahmen an dieselbe Sitzung angehängt werden.
+
+## Sitzungen segmentgenau Projekten zuordnen (Dry-Run)
+
+`plan_session_routing.py` verbindet die Sitzungsplanung mit den vorhandenen
+Projekt- und Themenregeln. Der Befehl öffnet die Pipeline-Datenbank nur lesend,
+schreibt kein Manifest und verändert weder Transkripte noch Status oder Drive.
+
+```bash
+.venv/bin/python plan_session_routing.py --date 2026-09-19
+```
+
+Die kompakte Ausgabe zeigt je Sitzung die sitzungsweiten Projektziele, die Zahl
+inhaltlich belegter Segmente, Themen und noch nicht projektspezifisch erkannter
+Segmente. Der vollständige Plan ist als JSON verfügbar:
+
+```bash
+.venv/bin/python plan_session_routing.py --date 2026-09-19 --json
+```
+
+Projektzuordnungen unterscheiden drei Eigenschaften:
+
+- `scopes: ["default"]`: Das Projekt erhält grundsätzlich die ganze Sitzung.
+- `scopes: ["active_context"]`: Das Projekt gehört zum aktuellen Arbeitskontext
+  und erhält ebenfalls die ganze Sitzung.
+- `scopes: ["content"]`: Mindestens ein einzelnes Segment erfüllt eine
+  transparente Inhaltsregel. `segments` enthält dafür Drive-ID, Aufnahme,
+  Segment-ID, relative und geschätzte absolute Zeit, Text und Trefferbegriffe.
+
+Ein Projekt kann mehrere dieser Eigenschaften gleichzeitig besitzen. Mehrere
+Regeln desselben Projekts werden je Segment zusammengeführt. Themen enthalten
+dieselben segmentgenauen Belege, wirken aber nicht als Projektziel.
+
+`unassigned_segments` bedeutet ausschließlich, dass für diese Segmente noch
+keine projektspezifische Inhaltsregel getroffen hat. Sie gehen nicht verloren:
+`default`- und `active_context`-Projekte gelten weiterhin für die vollständige
+Sitzung. Diese Trennung zeigt zugleich, welche Inhalte später vom Projektkatalog
+oder einer optionalen intelligenten Klassifikation profitieren würden.
+
+Zeitgrenze und manuelle Sitzungsregeln entsprechen dem Sitzungsplaner:
+
+```bash
+.venv/bin/python plan_session_routing.py --date 2026-09-19 \
+  --max-gap-minutes 60 --break-before DRIVE_ID
+```
