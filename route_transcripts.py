@@ -89,7 +89,25 @@ def recording_number(path: str) -> int | None:
 
 def matching_terms(text: str, terms: list[str]) -> list[str]:
     folded = text.casefold()
-    return [term for term in terms if term.casefold() in folded]
+    matched = []
+    for term in terms:
+        folded_term = term.casefold()
+        # Terms must start at a word boundary so "Gründung" does not match
+        # "Begründung". Common inflections and linking letters remain valid,
+        # while unrelated continuations such as "Drive" in "Driver" do not.
+        pattern = rf"(?<!\w){re.escape(folded_term)}"
+        for occurrence in re.finditer(pattern, folded):
+            tail = folded[occurrence.end():]
+            if not tail or not (tail[0].isalnum() or tail[0] == "_"):
+                matched.append(term)
+                break
+            is_short_acronym = (
+                term.isupper() and len(re.sub(r"\W", "", term)) <= 3
+            )
+            if not is_short_acronym and tail.startswith(("e", "en", "er", "n", "s")):
+                matched.append(term)
+                break
+    return matched
 
 
 def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:

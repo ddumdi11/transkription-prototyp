@@ -6,7 +6,7 @@ from pathlib import Path
 from inbox_watcher import open_state
 from publish_transcripts import prepare_publish_state
 from route_transcripts import (load_config, plan_one, published_transcripts,
-                               plan_published, recording_number)
+                               plan_published, recording_number, matching_terms)
 
 
 class RouteTranscriptsTest(unittest.TestCase):
@@ -92,6 +92,12 @@ class RouteTranscriptsTest(unittest.TestCase):
     def test_recording_number_handles_unknown_names(self):
         self.assertEqual(recording_number("Aufnahme #570.wav"), 570)
         self.assertIsNone(recording_number("Meeting.wav"))
+
+    def test_matching_terms_requires_a_safe_word_start(self):
+        self.assertEqual(matching_terms("eine Begründung", ["Gründung"]), [])
+        self.assertEqual(matching_terms("Kundenberater", ["Kunde"]), ["Kunde"])
+        self.assertEqual(matching_terms("Kino und KI", ["KI"]), ["KI"])
+        self.assertEqual(matching_terms("Driver", ["Drive"]), [])
 
     def test_glossary_routes_it_lotse_variants_to_probephase_project(self):
         self.add_published("Platzhalter")
