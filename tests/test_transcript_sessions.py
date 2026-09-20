@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from copy import deepcopy
@@ -9,6 +10,7 @@ from zoneinfo import ZoneInfo
 from inbox_watcher import open_state
 from plan_transcript_sessions import (
     group_recordings,
+    open_readonly_state,
     parse_mod_time,
     plan_sessions,
     serializable_session,
@@ -92,6 +94,22 @@ class TranscriptSessionsTest(unittest.TestCase):
         self.assertEqual(parsed.tzinfo, timezone.utc)
         with self.assertRaisesRegex(ValueError, "keine Zeitzone"):
             parse_mod_time("2026-09-19T09:24:26", "id-1")
+
+    def test_readonly_state_rejects_persistent_writes(self):
+        self.db.commit()
+        with open_readonly_state(self.root / "state.sqlite3") as readonly:
+            self.assertIs(readonly.row_factory, sqlite3.Row)
+            self.assertEqual(readonly.execute("PRAGMA query_only").fetchone()[0], 1)
+            with self.assertRaisesRegex(sqlite3.OperationalError, "readonly"):
+                readonly.execute(
+                    "INSERT INTO pipeline_settings (key, value) VALUES ('test', 'test')"
+                )
+            readonly.commit()
+        self.assertIsNone(
+            self.db.execute(
+                "SELECT value FROM pipeline_settings WHERE key = 'test'"
+            ).fetchone()
+        )
 
     def test_groups_by_actual_quiet_gap(self):
         base = datetime(2026, 9, 19, 10, tzinfo=self.timezone)

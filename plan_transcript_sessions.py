@@ -14,8 +14,7 @@ import sqlite3
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from inbox_watcher import open_state, setup_logging
-from publish_transcripts import prepare_publish_state
+from inbox_watcher import setup_logging
 from route_transcripts import recording_number
 from segment_metadata import load_segment_metadata
 
@@ -23,6 +22,14 @@ from segment_metadata import load_segment_metadata
 STATE_DIR = Path(".inbox-watcher")
 DEFAULT_TIMEZONE = os.environ.get("AUDIOREC_TIMEZONE", "Europe/Berlin")
 DEFAULT_MAX_GAP_MINUTES = 90
+
+
+def open_readonly_state(path: Path) -> sqlite3.Connection:
+    """Open an existing pipeline database without permitting persistent writes."""
+    db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA query_only=ON")
+    return db
 
 
 def published_recordings(db: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -226,8 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         except ZoneInfoNotFoundError as exc:
             raise ValueError(f"Unbekannte Zeitzone: {args.timezone}") from exc
         selected_date = args.date or datetime.now(timezone).date()
-        with open_state(args.state_dir / "state.sqlite3") as db:
-            prepare_publish_state(db)
+        with open_readonly_state(args.state_dir / "state.sqlite3") as db:
             sessions = plan_sessions(
                 db,
                 selected_date=selected_date,
