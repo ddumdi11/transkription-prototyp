@@ -224,3 +224,43 @@ Maschinenlesbare Ausgabe:
 Jedes Ziel wird mit `default`, `active_context` oder den passenden
 `content:`-Begriffen begründet. In v0.3 erzeugt das Werkzeug ausschließlich den
 Plan; die idempotente Kopierfunktion folgt erst nach geprüftem Dry-Run.
+
+## Aufnahme-Sitzungen planen (Dry-Run)
+
+`plan_transcript_sessions.py` fasst bereits veröffentlichte Aufnahmen eines
+Tages zu zusammengehörigen Denk-, Arbeits- oder Spaziergangssitzungen zusammen.
+Es verändert weder Transkripte noch Pipeline-Status oder Drive. Voraussetzung
+sind die von der Pipeline erzeugten lokalen Segmentdateien.
+
+```bash
+.venv/bin/python plan_transcript_sessions.py --date 2026-09-19
+```
+
+Die Drive-Änderungszeit gilt als Aufnahmeende. Das Ende des letzten validierten
+Whisper-Segments dient als Näherung für die Aufnahmedauer und damit für den
+Aufnahmebeginn. Entscheidend ist anschließend die geschätzte Ruhezeit zwischen
+zwei Aufnahmen, nicht deren Upload- oder Transkriptionszeit. Standardmäßig
+beginnt erst nach mehr als 90 Minuten eine neue Sitzung:
+
+```bash
+.venv/bin/python plan_transcript_sessions.py \
+  --date 2026-09-19 --max-gap-minutes 60 --json
+```
+
+Grenzfälle lassen sich anhand der unverwechselbaren Audio-Drive-ID korrigieren:
+
+```bash
+# Vor dieser Aufnahme immer trennen
+.venv/bin/python plan_transcript_sessions.py --date 2026-09-19 \
+  --break-before DRIVE_ID
+
+# Diese Aufnahme trotz großer Pause mit der vorherigen verbinden
+.venv/bin/python plan_transcript_sessions.py --date 2026-09-19 \
+  --join-with-previous DRIVE_ID
+```
+
+Eine Drive-ID darf nicht gleichzeitig beide Regeln erhalten. Unbekannte IDs und
+fehlende oder ungültige Segmentdaten führen zu einem kontrollierten Fehler,
+statt stillschweigend einen unzuverlässigen Plan zu erzeugen. Die Sitzungs-ID
+basiert auf der ersten Aufnahme und bleibt stabil, wenn später weitere
+Aufnahmen an dieselbe Sitzung angehängt werden.

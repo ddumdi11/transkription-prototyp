@@ -282,6 +282,18 @@ langsame Systeme mit `--timeout-seconds` überschrieben werden. Das Werkzeug
 lädt nichts auf Drive und verändert weder das kanonische Transkript noch die
 Aufnahme.
 
+Veröffentlichte Aufnahmen lassen sich außerdem schreibgeschützt zu zeitlich
+zusammengehörigen Sitzungen gruppieren:
+
+```bash
+.venv/bin/python plan_transcript_sessions.py --date 2026-09-19 --json
+```
+
+Der Planer verwendet Drive-Zeit und Segmentdauer, standardmäßig mit 90 Minuten
+maximaler Ruhezeit. `--break-before DRIVE_ID` und
+`--join-with-previous DRIVE_ID` erlauben nachvollziehbare manuelle Ausnahmen.
+Details stehen in [docs/INBOX_WATCHER.md](docs/INBOX_WATCHER.md).
+
 #### transcribe.py Optionen
 
 | Option | Beschreibung |
