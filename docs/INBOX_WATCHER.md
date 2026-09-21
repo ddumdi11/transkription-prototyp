@@ -308,3 +308,37 @@ Zeitgrenze und manuelle Sitzungsregeln entsprechen dem Sitzungsplaner:
 .venv/bin/python plan_session_routing.py --date 2026-09-19 \
   --max-gap-minutes 60 --break-before DRIVE_ID
 ```
+
+### Geprüften Routingplan lokal bestätigen
+
+Der Sitzungs-Routingplan bleibt standardmäßig ein Dry-Run. Nach der inhaltlichen
+Prüfung können eine oder mehrere angezeigte Sitzungs-IDs ausdrücklich bestätigt
+werden:
+
+```bash
+.venv/bin/python plan_session_routing.py --date 2026-09-19 \
+  --confirm-session session-20260919-1124-5bd7d0b0
+```
+
+Erst `--confirm-session` schreibt ein lokales JSON-Manifest nach
+`staging/routing-manifests/`. Die Option ist wiederholbar, wenn mehrere
+Sitzungen desselben Tages gemeinsam geprüft wurden. Vor dem ersten Schreiben
+müssen sämtliche genannten IDs im aktuellen Tagesplan vorkommen.
+
+Das Manifest enthält den vollständigen Routingplan, den UTC-Zeitpunkt der
+ausdrücklichen CLI-Bestätigung und einen SHA256 über den kanonisch serialisierten
+Plan. Eine identische Wiederholung ist idempotent. Existiert unter derselben
+Sitzungs-ID bereits ein beschädigtes oder inhaltlich abweichendes Manifest,
+wird es nicht überschrieben, sondern als Konflikt gemeldet. Die Installation
+erfolgt über eine temporäre Datei; Fehler hinterlassen kein Teilmanifest.
+
+Ein alternatives lokales Ziel lässt sich explizit angeben:
+
+```bash
+.venv/bin/python plan_session_routing.py --date 2026-09-19 \
+  --confirm-session SESSION_ID --manifest-dir /lokales/ziel
+```
+
+Auch die Bestätigung kopiert noch keine Projektdateien und nimmt keinerlei
+Drive- oder Pipeline-Statusänderung vor. Das bestätigte Manifest ist die
+prüfbare Eingabe für den späteren Export in Projekt-Eingänge.
