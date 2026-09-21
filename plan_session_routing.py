@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any
+import tempfile
+from typing import Any, BinaryIO, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from inbox_watcher import setup_logging
@@ -229,6 +232,56 @@ def existing_manifest_matches(path: Path, session: dict[str, Any]) -> bool:
     )
 
 
+def _lock_file(handle: BinaryIO) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+
+def _unlock_file(handle: BinaryIO) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def manifest_lock(target: Path) -> Iterator[None]:
+    """Serialize the existence check and installation for one target."""
+    lock_path = target.parent / f".{target.name}.lock"
+    with lock_path.open("a+b") as handle:
+        _lock_file(handle)
+        try:
+            yield
+        finally:
+            _unlock_file(handle)
+
+
+def fsync_directory(path: Path) -> None:
+    """Persist directory-entry changes or propagate the durability failure."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def write_confirmed_manifest(
     session: dict[str, Any],
     output_dir: Path,
@@ -237,27 +290,48 @@ def write_confirmed_manifest(
     """Atomically install one explicitly confirmed, idempotent manifest."""
     output_dir = output_dir.expanduser().resolve()
     target = manifest_target(session, output_dir)
-    if target.exists():
-        if existing_manifest_matches(target, session):
-            return target, False
-        raise FileExistsError(
-            "Manifest existiert bereits, stimmt aber nicht mit dem aktuellen "
-            f"Routingplan überein: {target}"
-        )
-
     output_dir.mkdir(parents=True, exist_ok=True)
-    temporary = output_dir / f".{target.name}.tmp"
     payload = build_confirmed_manifest(session, confirmed_at)
-    try:
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(target)
-    except Exception:
-        temporary.unlink(missing_ok=True)
-        raise
-    return target, True
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+    with manifest_lock(target):
+        if target.exists():
+            if existing_manifest_matches(target, session):
+                return target, False
+            raise FileExistsError(
+                "Manifest existiert bereits, stimmt aber nicht mit dem aktuellen "
+                f"Routingplan überein: {target}"
+            )
+
+        temporary: Path | None = None
+        installed = False
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=output_dir,
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(serialized)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary.replace(target)
+            installed = True
+            fsync_directory(output_dir)
+        except Exception:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            if installed:
+                target.unlink(missing_ok=True)
+                try:
+                    fsync_directory(output_dir)
+                except OSError:
+                    pass
+            raise
+        return target, True
 
 
 def confirm_selected_sessions(

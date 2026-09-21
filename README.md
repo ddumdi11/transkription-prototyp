@@ -304,7 +304,8 @@ Er verbindet sitzungsweite Standard- und Kontextprojekte mit konkreten
 Projekt- und Themenbelegen je Segment. Nicht durch eine Inhaltsregel erfasste
 Segmente werden ausdrücklich ausgewiesen. Auch dieser Schritt ist vollständig
 lesend und erzeugt noch keine Projektkopien oder Manifeste. Nach manueller
-Prüfung kann genau eine angezeigte Sitzung ausdrücklich lokal bestätigt werden:
+Prüfung können eine oder mehrere angezeigte Sitzungen ausdrücklich lokal
+bestätigt werden:
 
 ```bash
 .venv/bin/python plan_session_routing.py --date 2026-09-19 \

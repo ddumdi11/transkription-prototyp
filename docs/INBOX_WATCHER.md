@@ -312,7 +312,8 @@ Zeitgrenze und manuelle Sitzungsregeln entsprechen dem Sitzungsplaner:
 ### Geprüften Routingplan lokal bestätigen
 
 Der Sitzungs-Routingplan bleibt standardmäßig ein Dry-Run. Nach der inhaltlichen
-Prüfung kann genau eine angezeigte Sitzungs-ID ausdrücklich bestätigt werden:
+Prüfung können eine oder mehrere angezeigte Sitzungs-IDs ausdrücklich bestätigt
+werden:
 
 ```bash
 .venv/bin/python plan_session_routing.py --date 2026-09-19 \

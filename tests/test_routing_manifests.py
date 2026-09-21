@@ -1,5 +1,7 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
+import threading
 import unittest
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -137,7 +139,82 @@ class RoutingManifestTest(unittest.TestCase):
                     self.session, self.output, self.confirmed_at
                 )
 
-        self.assertEqual(list(self.output.iterdir()), [])
+        target = self.output / f"routing__{self.session['session_id']}.json"
+        self.assertFalse(target.exists())
+        self.assertEqual(list(self.output.glob(".*.tmp")), [])
+
+    def test_concurrent_divergent_confirmation_cannot_replace_winner(self):
+        changed = deepcopy(self.session)
+        changed["projects"][0]["name"] = "Anderes Projekt"
+        barrier = threading.Barrier(2)
+
+        def attempt(session):
+            barrier.wait()
+            try:
+                return ("written", write_confirmed_manifest(
+                    session, self.output, self.confirmed_at
+                ))
+            except Exception as exc:
+                return ("error", exc)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(attempt, [self.session, changed]))
+
+        written = [result for status, result in results if status == "written"]
+        errors = [result for status, result in results if status == "error"]
+        self.assertEqual(len(written), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], FileExistsError)
+        winner_path, created = written[0]
+        self.assertTrue(created)
+        winner = json.loads(winner_path.read_text(encoding="utf-8"))["session"]
+        self.assertIn(winner, [self.session, changed])
+        self.assertEqual(list(self.output.glob(".*.tmp")), [])
+
+    def test_fsync_order_is_file_replace_directory(self):
+        events = []
+        original_replace = Path.replace
+
+        def track_fsync(_descriptor):
+            events.append("fsync")
+
+        def track_replace(source, target):
+            events.append("replace")
+            return original_replace(source, target)
+
+        with (
+            patch("plan_session_routing.os.fsync", side_effect=track_fsync),
+            patch.object(Path, "replace", autospec=True, side_effect=track_replace),
+        ):
+            path, created = write_confirmed_manifest(
+                self.session, self.output, self.confirmed_at
+            )
+
+        self.assertTrue(created)
+        self.assertTrue(path.exists())
+        self.assertEqual(events, ["fsync", "replace", "fsync"])
+
+    def test_directory_fsync_failure_is_reported_and_rolls_back_target(self):
+        calls = 0
+
+        def fail_directory_fsync(_descriptor):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("directory fsync failed")
+
+        with patch(
+            "plan_session_routing.os.fsync", side_effect=fail_directory_fsync
+        ):
+            with self.assertRaisesRegex(OSError, "directory fsync failed"):
+                write_confirmed_manifest(
+                    self.session, self.output, self.confirmed_at
+                )
+
+        target = self.output / f"routing__{self.session['session_id']}.json"
+        self.assertFalse(target.exists())
+        self.assertEqual(list(self.output.glob(".*.tmp")), [])
+        self.assertEqual(calls, 3)
 
     def test_dry_selection_does_not_create_output_directory(self):
         result = confirm_selected_sessions(
