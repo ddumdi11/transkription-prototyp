@@ -100,7 +100,11 @@ def build_session_routing(
             assigned_to_project = False
 
             for rule in config["project_rules"]:
-                matched = matching_terms(segment["text"], rule["match_any"])
+                matched = matching_terms(
+                    segment["text"],
+                    rule["match_any"],
+                    config.get("exact_terms", []),
+                )
                 if not matched:
                     continue
                 assigned_to_project = True
@@ -120,7 +124,9 @@ def build_session_routing(
                 unassigned_segments.append(reference)
 
             for topic, terms in config["topic_rules"].items():
-                matched = matching_terms(segment["text"], terms)
+                matched = matching_terms(
+                    segment["text"], terms, config.get("exact_terms", [])
+                )
                 if not matched:
                     continue
                 entry = topics.setdefault(str(topic), {

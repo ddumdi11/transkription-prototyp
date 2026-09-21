@@ -32,6 +32,12 @@ def load_config(path: Path) -> dict[str, Any]:
         raise ValueError("Projektfelder der Routing-Konfiguration müssen Listen sein")
     if not isinstance(config["topic_rules"], dict):
         raise ValueError("topic_rules muss ein Objekt sein")
+    exact_terms = config.get("exact_terms", [])
+    if (not isinstance(exact_terms, list)
+            or not all(isinstance(term, str) and term.strip()
+                       for term in exact_terms)):
+        raise ValueError("exact_terms muss eine Textliste sein")
+    config["exact_terms"] = exact_terms
     for index, rule in enumerate(config["project_rules"]):
         if not isinstance(rule, dict):
             raise ValueError(f"project_rules[{index}] muss ein Objekt sein")
@@ -87,8 +93,15 @@ def recording_number(path: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def matching_terms(text: str, terms: list[str]) -> list[str]:
+def matching_terms(
+    text: str,
+    terms: list[str],
+    exact_terms: list[str] | None = None,
+) -> list[str]:
     folded = text.casefold()
+    folded_exact_terms = {
+        term.casefold() for term in (exact_terms or [])
+    }
     matched = []
     for term in terms:
         folded_term = term.casefold()
@@ -101,6 +114,8 @@ def matching_terms(text: str, terms: list[str]) -> list[str]:
             if not tail or not (tail[0].isalnum() or tail[0] == "_"):
                 matched.append(term)
                 break
+            if folded_term in folded_exact_terms:
+                continue
             is_short_acronym = (
                 term.isupper() and len(re.sub(r"\W", "", term)) <= 3
             )
@@ -127,13 +142,17 @@ def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
     for project in config["active_projects"]:
         add_project(str(project), "active_context")
     for rule in config["project_rules"]:
-        matched = matching_terms(text, list(rule.get("match_any", [])))
+        matched = matching_terms(
+            text,
+            list(rule.get("match_any", [])),
+            config.get("exact_terms", []),
+        )
         if matched:
             add_project(str(rule["project"]), "content:" + ",".join(matched))
 
     topics = []
     for topic, terms in config["topic_rules"].items():
-        if matching_terms(text, list(terms)):
+        if matching_terms(text, list(terms), config.get("exact_terms", [])):
             topics.append(str(topic))
 
     return {

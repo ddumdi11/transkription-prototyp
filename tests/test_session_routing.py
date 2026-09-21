@@ -61,6 +61,7 @@ class SessionRoutingTest(unittest.TestCase):
         return {
             "default_projects": ["Z04", "Gemeinsam"],
             "active_projects": ["Watcher", "Gemeinsam"],
+            "exact_terms": ["Drive"],
             "project_rules": [
                 {"project": "Watcher", "match_any": ["Pipeline"]},
                 {"project": "Watcher", "match_any": ["Drive"]},
@@ -124,6 +125,15 @@ class SessionRoutingTest(unittest.TestCase):
             [project["name"] for project in result["projects"]],
             ["Z04", "Gemeinsam", "Watcher"],
         )
+
+    def test_exact_term_does_not_match_inside_driven(self):
+        result = build_session_routing(self.session([
+            self.segment(1, 10, 20, "Ich lerne Test Driven Development."),
+        ]), self.config())
+
+        projects = {project["name"]: project for project in result["projects"]}
+        self.assertNotIn("content", projects["Watcher"]["scopes"])
+        self.assertEqual(result["topics"], [])
 
     def test_rejects_sidecar_from_another_recording(self):
         session = self.session([], source_id="other-drive")
