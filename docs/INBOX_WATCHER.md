@@ -207,7 +207,9 @@ cp routing.example.json .inbox-watcher/routing.json
 `default_projects` erhalten jedes Transkript. `active_projects` beschreiben den
 aktuellen Arbeitskontext und erhalten während dieser Phase ebenfalls jedes
 Transkript. `project_rules` ergänzen Projekte anhand transparenter Suchbegriffe;
-`topic_rules` vergeben davon unabhängige Themen-Tags.
+`topic_rules` vergeben davon unabhängige Themen-Tags. Begriffe in `exact_terms`
+müssen an einer Wortgrenze enden. So trifft etwa `Drive` weiterhin auf
+`Drive-Ordner`, aber nicht auf `Driven` in „Test Driven Development“.
 
 Den Plan für einen Aufnahmebereich anzeigen:
 

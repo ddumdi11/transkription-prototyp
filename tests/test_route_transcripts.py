@@ -99,6 +99,22 @@ class RouteTranscriptsTest(unittest.TestCase):
         self.assertEqual(matching_terms("Kino und KI", ["KI"]), ["KI"])
         self.assertEqual(matching_terms("Driver", ["Drive"]), [])
 
+    def test_matching_terms_can_require_an_exact_word_end(self):
+        self.assertEqual(
+            matching_terms(
+                "Test Driven Development", ["Drive"], exact_terms=["Drive"]
+            ),
+            [],
+        )
+        self.assertEqual(
+            matching_terms("Google Drive", ["Drive"], exact_terms=["Drive"]),
+            ["Drive"],
+        )
+        self.assertEqual(
+            matching_terms("Drive-Ordner", ["Drive"], exact_terms=["Drive"]),
+            ["Drive"],
+        )
+
     def test_glossary_routes_it_lotse_variants_to_probephase_project(self):
         self.add_published("Platzhalter")
         row = published_transcripts(self.db)[0]
@@ -129,6 +145,7 @@ class RouteTranscriptsTest(unittest.TestCase):
         base = {
             "default_projects": ["Z04"],
             "active_projects": [],
+            "exact_terms": ["Drive"],
             "project_rules": [{"project": "Watcher", "match_any": ["Upload"]}],
             "topic_rules": {"workflow": ["Drive"]},
         }
@@ -141,6 +158,8 @@ class RouteTranscriptsTest(unittest.TestCase):
             {**base, "topic_rules": {"workflow": "Drive"}},
             {**base, "topic_rules": {"workflow": []}},
             {**base, "topic_rules": {"workflow": ["\t"]}},
+            {**base, "exact_terms": "Drive"},
+            {**base, "exact_terms": [" "]},
         ]
         for index, config in enumerate(malformed):
             with self.subTest(index=index):
