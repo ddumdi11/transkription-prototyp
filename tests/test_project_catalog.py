@@ -1,5 +1,6 @@
 import copy
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -105,6 +106,22 @@ class ProjectCatalogTest(unittest.TestCase):
         with self.assertRaisesRegex(ProjectCatalogError, "Mehrwortbegriffe"):
             validate_project_catalog(catalog)
 
+    def test_rejects_exact_term_without_unicode_word_character(self):
+        unicode_catalog = self.catalog()
+        unicode_catalog["projects"][0]["routing"]["terms"].append("ä")
+        unicode_catalog["projects"][0]["routing"]["exact_terms"] = ["ä"]
+        unicode_catalog["catalog_hash"] = project_catalog_hash(
+            unicode_catalog["projects"]
+        )
+        validate_project_catalog(unicode_catalog)
+
+        catalog = self.catalog()
+        catalog["projects"][0]["routing"]["terms"].append("!!!")
+        catalog["projects"][0]["routing"]["exact_terms"] = ["!!!"]
+        catalog["catalog_hash"] = project_catalog_hash(catalog["projects"])
+        with self.assertRaisesRegex(ProjectCatalogError, "ohne Wortzeichen"):
+            validate_project_catalog(catalog)
+
     def test_rejects_unknown_relation_target(self):
         catalog = self.catalog()
         catalog["projects"][0]["relations"] = [
@@ -135,10 +152,30 @@ class ProjectCatalogTest(unittest.TestCase):
             validate_project_catalog(duplicate)
 
     def test_rejects_non_utc_timestamp(self):
-        catalog = self.catalog()
-        catalog["exported_at"] = "2026-09-23T16:23:59+02:00"
-        with self.assertRaisesRegex(ProjectCatalogError, "muss in UTC"):
-            validate_project_catalog(catalog)
+        for timestamp in (
+            "2026-09-23T16:23:59+02:00",
+            "2026-09-23T14:23:59z",
+        ):
+            with self.subTest(timestamp=timestamp):
+                catalog = self.catalog()
+                catalog["exported_at"] = timestamp
+                with self.assertRaisesRegex(ProjectCatalogError, "muss in UTC"):
+                    validate_project_catalog(catalog)
+
+    def test_schema_timestamp_pattern_accepts_only_explicit_utc_suffixes(self):
+        schema_path = (
+            Path(__file__).parents[1]
+            / "schemas"
+            / "atlas-project-catalog.schema.v1.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        for property_name in ("catalog_revision", "exported_at"):
+            pattern = schema["properties"][property_name]["pattern"]
+            self.assertIsNotNone(re.search(pattern, "2026-09-23T14:23:59Z"))
+            self.assertIsNotNone(re.search(pattern, "2026-09-23T14:23:59+00:00"))
+            self.assertIsNone(re.search(pattern, "2026-09-23T16:23:59+02:00"))
+            self.assertIsNone(re.search(pattern, "2026-09-23T14:23:59z"))
 
 
 if __name__ == "__main__":

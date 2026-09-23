@@ -16,6 +16,7 @@ SCHEMA_VERSION = 1
 EXPORT_TYPE = "z_system_project_catalog"
 PROJECT_ID_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 CATALOG_HASH_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+UTC_TIMESTAMP_SUFFIX_PATTERN = re.compile(r"(?:Z|\+00:00)$")
 PROJECT_STATUSES = {"active", "paused", "archived", "candidate"}
 
 
@@ -58,6 +59,10 @@ def _text_list(value: Any, path: str) -> list[str]:
 
 def _timestamp(value: Any, path: str) -> str:
     text = _text(value, path)
+    if not UTC_TIMESTAMP_SUFFIX_PATTERN.search(text):
+        raise ProjectCatalogError(
+            f"{path} muss in UTC mit Z oder +00:00 angegeben sein"
+        )
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:
@@ -184,6 +189,14 @@ def validate_project_catalog(payload: Any) -> dict[str, Any]:
             raise ProjectCatalogError(
                 f"{path}.routing.exact_terms enthält Mehrwortbegriffe: "
                 + ", ".join(invalid_exact)
+            )
+        non_word_exact = [
+            term for term in exact_terms if not re.search(r"\w", term)
+        ]
+        if non_word_exact:
+            raise ProjectCatalogError(
+                f"{path}.routing.exact_terms enthält Begriffe ohne Wortzeichen: "
+                + ", ".join(non_word_exact)
             )
         folded_terms = {term.casefold() for term in terms}
         unknown_exact = [

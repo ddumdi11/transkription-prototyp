@@ -18,8 +18,16 @@
     "schema_version": {"const": 1},
     "export_type": {"const": "z_system_project_catalog"},
     "catalog_id": {"type": "string", "minLength": 1},
-    "catalog_revision": {"type": "string", "format": "date-time"},
-    "exported_at": {"type": "string", "format": "date-time"},
+    "catalog_revision": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(?:Z|\\+00:00)$"
+    },
+    "exported_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(?:Z|\\+00:00)$"
+    },
     "source": {
       "type": "object",
       "additionalProperties": false,
