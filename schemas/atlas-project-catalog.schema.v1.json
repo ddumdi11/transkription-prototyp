@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ddumdi11:transkription-prototyp:atlas-project-catalog:v1",
+  "title": "Atlas project catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "export_type",
+    "catalog_id",
+    "catalog_revision",
+    "exported_at",
+    "source",
+    "catalog_hash",
+    "projects"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "export_type": {"const": "z_system_project_catalog"},
+    "catalog_id": {"type": "string", "minLength": 1},
+    "catalog_revision": {"type": "string", "format": "date-time"},
+    "exported_at": {"type": "string", "format": "date-time"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "instance_id"],
+      "properties": {
+        "application": {"type": "string", "minLength": 1},
+        "instance_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "catalog_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/project"}
+    }
+  },
+  "$defs": {
+    "nonEmptyText": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "textList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/nonEmptyText"}
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "project_id"],
+      "properties": {
+        "type": {"$ref": "#/$defs/nonEmptyText"},
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "terms", "exact_terms"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "terms": {"$ref": "#/$defs/textList"},
+        "exact_terms": {
+          "allOf": [
+            {"$ref": "#/$defs/textList"},
+            {
+              "description": "Safe single-token terms that may route alone and must match at word boundaries. Semantic subset of terms; checked by the validator.",
+              "items": {"type": "string", "pattern": "^\\S+$"}
+            }
+          ]
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "name",
+        "status",
+        "category",
+        "aliases",
+        "relations",
+        "routing"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "name": {"$ref": "#/$defs/nonEmptyText"},
+        "status": {
+          "enum": ["active", "paused", "archived", "candidate"]
+        },
+        "category": {
+          "oneOf": [
+            {"$ref": "#/$defs/nonEmptyText"},
+            {"type": "null"}
+          ]
+        },
+        "aliases": {"$ref": "#/$defs/textList"},
+        "relations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relation"}
+        },
+        "routing": {"$ref": "#/$defs/routing"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"not": {"const": "candidate"}}},
+            "required": ["status"]
+          },
+          "then": {"properties": {"category": {"$ref": "#/$defs/nonEmptyText"}}}
+        }
+      ]
+    }
+  }
+}

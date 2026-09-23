@@ -317,6 +317,17 @@ vollständigen Plan und dessen SHA256. Identische Wiederholungen sind idempotent
 abweichende Inhalte unter derselben Sitzungs-ID werden nicht überschrieben.
 Drive und Pipeline-Status bleiben auch dabei unverändert.
 
+Ein aus Atlas exportierter Projektkatalog kann vor seiner späteren Verwendung
+schreibgeschützt gegen den versionierten Schnittstellenvertrag geprüft werden:
+
+```bash
+.venv/bin/python project_catalog.py atlas-project-catalog.v1.json
+```
+
+Der Validator kontrolliert Struktur, stabile Vorhaben-Slugs, Beziehungen,
+Routingbegriffe und den kanonischen Kataloghash, schreibt aber keine Datei und
+ändert weder Pipeline-Status noch Drive.
+
 #### transcribe.py Optionen
 
 | Option | Beschreibung |

@@ -186,6 +186,23 @@ Drive-Upload der Trainingsbeispiele ist noch nicht aktiviert.
 
 ## Projektverteilung planen (v0.3 Dry-Run)
 
+### Atlas-Projektkatalog prüfen
+
+Atlas exportiert seinen versionierten Vorhabenkatalog als UTF-8-JSON. Vor
+jeder späteren Routing- oder Exportverwendung wird eine lokale Kopie
+ausschließlich lesend validiert:
+
+```bash
+.venv/bin/python project_catalog.py /pfad/zu/atlas-project-catalog.v1.json
+```
+
+Der Validator prüft neben der Struktur unter anderem stabile slugförmige
+Projekt-IDs, Status und Kategorien, eindeutige Begriffe, gültige Beziehungen,
+`exact_terms` als Teilmenge von `terms` sowie den kanonischen `catalog_hash`.
+Das maschinenlesbare Vertragsschema liegt unter
+`schemas/atlas-project-catalog.schema.v1.json`. Der Befehl verändert weder den
+Katalog noch Pipeline-Status oder Drive.
+
 `route_transcripts.py` plant die projektbezogene Verteilung bereits erfolgreich
 veröffentlichter Transkripte. Das kanonische Transkript in `AudioRec Transcripts`
 bleibt unverändert. Der Dry-Run kopiert keine Datei und ändert nichts auf Drive.
