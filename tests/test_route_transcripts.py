@@ -139,7 +139,7 @@ class RouteTranscriptsTest(unittest.TestCase):
                     project["name"]
                     for project in plan_one(row, load_config(config_path))["projects"]
                 ]
-                self.assertEqual(projects, ["IT-Dienstleistungen Probephase"])
+                self.assertEqual(projects, ["it-ki-beratung"])
 
     def test_load_config_rejects_malformed_nested_rules(self):
         base = {

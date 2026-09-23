@@ -328,6 +328,22 @@ Der Validator kontrolliert Struktur, stabile Vorhaben-Slugs, Beziehungen,
 Routingbegriffe und den kanonischen Kataloghash, schreibt aber keine Datei und
 ändert weder Pipeline-Status noch Drive.
 
+Ein ausdrücklich bestätigtes Sitzungsmanifest kann anschließend zunächst als
+lokales, verifiziertes Atlas-Lieferpaket geplant werden:
+
+```bash
+.venv/bin/python export_transcript_delivery.py \
+  --routing-manifest staging/routing-manifests/routing__SESSION_ID.json \
+  --catalog /pfad/zu/atlas-project-catalog.v1.json
+```
+
+Erst `--confirm` erzeugt das Paket atomar unter
+`staging/project-deliveries/`. Es enthält verifizierte Kopien der bereits
+kanonisch veröffentlichten Transkripte und zuletzt `delivery.json`. Der
+Exporter lädt noch nichts auf Drive und verändert weder Pipeline-State noch
+kanonische Transkripte. Das zugehörige Vertragsschema liegt unter
+`schemas/z-system-transcript-delivery.schema.v1.json`.
+
 #### transcribe.py Optionen
 
 | Option | Beschreibung |

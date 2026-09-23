@@ -361,3 +361,27 @@ Ein alternatives lokales Ziel lässt sich explizit angeben:
 Auch die Bestätigung kopiert noch keine Projektdateien und nimmt keinerlei
 Drive- oder Pipeline-Statusänderung vor. Das bestätigte Manifest ist die
 prüfbare Eingabe für den späteren Export in Projekt-Eingänge.
+
+## Bestätigte Sitzung als lokale Z-System-Lieferung vorbereiten
+
+Der Lieferexporter akzeptiert ausschließlich ein bestätigtes, intern
+konsistentes Routingmanifest und einen gültigen Atlas-Projektkatalog:
+
+```bash
+.venv/bin/python export_transcript_delivery.py \
+  --routing-manifest staging/routing-manifests/routing__SESSION_ID.json \
+  --catalog /pfad/zu/atlas-project-catalog.v1.json
+```
+
+Der Standardaufruf ist ein Dry-Run. Er prüft den Routingplan-Hash, sämtliche
+Projekt-Slugs, die veröffentlichten Remote-Identitäten sowie Größe und SHA256
+jedes lokalen kanonischen Transkripts. Erst `--confirm` installiert ein lokales
+Paket atomar und idempotent unter `staging/project-deliveries/<delivery_id>/`.
+Die Transkriptkopien werden vor dem zuletzt geschriebenen `delivery.json`
+verifiziert. Ein abweichendes Paket mit derselben ID wird niemals
+überschrieben.
+
+Das maschinenlesbare Lieferschema liegt unter
+`schemas/z-system-transcript-delivery.schema.v1.json`. Dieser Schritt lädt
+noch nichts nach Drive und ändert weder den Pipeline-State noch die
+kanonischen Transkripte.
