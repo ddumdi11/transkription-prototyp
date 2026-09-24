@@ -72,6 +72,7 @@ def build_session_routing(
 
     def project_entry(name: str) -> dict[str, Any]:
         return projects.setdefault(name, {
+            "project_id": name,
             "name": name,
             "whole_session": False,
             "scopes": [],
@@ -464,8 +465,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 for project in session["projects"]:
                     logger.info(
-                        "  project=%r scopes=%s evidence_segments=%d",
-                        project["name"], ",".join(project["scopes"]),
+                        "  project_id=%r scopes=%s evidence_segments=%d",
+                        project["project_id"], ",".join(project["scopes"]),
                         len(project["segments"]),
                     )
                 for topic in session["topics"]:

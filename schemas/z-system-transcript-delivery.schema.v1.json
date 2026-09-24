@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ddumdi11:transkription-prototyp:z-system-transcript-delivery:v1",
+  "title": "Z-System transcript delivery v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "delivery_id",
+    "created_at",
+    "project_catalog",
+    "source_routing_manifest",
+    "session",
+    "assets",
+    "assignments"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "manifest_type": {"const": "z_system_transcript_delivery"},
+    "delivery_id": {
+      "type": "string",
+      "pattern": "^session-[0-9]{8}-[0-9]{4}-[0-9a-f]{8}:[0-9a-f]{16}$"
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "project_catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalog_id", "catalog_revision", "catalog_hash"],
+      "properties": {
+        "catalog_id": {"$ref": "#/$defs/nonEmptyText"},
+        "catalog_revision": {"type": "string", "format": "date-time"},
+        "catalog_hash": {"$ref": "#/$defs/sha256Prefixed"}
+      }
+    },
+    "source_routing_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_key", "sha256"],
+      "properties": {
+        "manifest_key": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "started_at", "ended_at"],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "pattern": "^session-[0-9]{8}-[0-9]{4}-[0-9a-f]{8}$"
+        },
+        "started_at": {"type": "string", "format": "date-time"},
+        "ended_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/asset"}
+    },
+    "assignments": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/assignment"}
+    }
+  },
+  "$defs": {
+    "nonEmptyText": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sha256Prefixed": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "kind",
+        "relative_path",
+        "canonical_drive_id",
+        "source_audio_drive_id",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "asset_id": {"type": "string", "pattern": "^transcript:.+"},
+        "kind": {"const": "canonical_transcript_copy"},
+        "relative_path": {"type": "string", "pattern": "^transcripts/[^/]+$"},
+        "canonical_drive_id": {"$ref": "#/$defs/nonEmptyText"},
+        "source_audio_drive_id": {"$ref": "#/$defs/nonEmptyText"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size": {"type": "integer", "minimum": 0}
+      }
+    },
+    "segmentReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_audio_drive_id", "segment_id"],
+      "properties": {
+        "source_audio_drive_id": {"$ref": "#/$defs/nonEmptyText"},
+        "segment_id": {"type": "string", "pattern": "^segment-[0-9]{6}$"}
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "scope", "reasons", "segments"],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "scope": {"enum": ["whole_session", "segments"]},
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/nonEmptyText"}
+        },
+        "segments": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/segmentReference"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"scope": {"const": "segments"}}},
+          "then": {"properties": {"segments": {"minItems": 1}}}
+        }
+      ]
+    }
+  }
+}

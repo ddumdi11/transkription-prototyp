@@ -1,25 +1,25 @@
 {
   "default_projects": [
-    "Z04 - MyOwnCents",
-    "Selbstregulation statt Selbstoptimierung"
+    "projektverwaltung-steuerung",
+    "selbstregulation"
   ],
   "active_projects": [
-    "Implementiere Inbox-Wächter MVP",
-    "Projekt Selbständigkeit"
+    "z-system",
+    "it-ki-beratung"
   ],
   "exact_terms": [
     "Drive"
   ],
   "project_rules": [
     {
-      "project": "Implementiere Inbox-Wächter MVP",
+      "project": "projektverwaltung-steuerung",
       "match_any": [
         "Upload", "Drive", "Pipeline", "Workflow", "Inbox-Wächter",
         "Sperrbildschirm", "Transkriptionsautomatisierung"
       ]
     },
     {
-      "project": "Projekt Selbständigkeit",
+      "project": "it-ki-beratung",
       "match_any": [
         "Selbstständigkeit", "Selbständigkeit", "IHK", "Kunde", "Angebot",
         "Geschäftsmodell", "Gründung", "Finanzplan"

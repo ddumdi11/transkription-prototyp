@@ -87,6 +87,7 @@ class SessionRoutingTest(unittest.TestCase):
         self.assertEqual(result["content_assigned_segment_count"], 2)
         self.assertEqual(result["unassigned_segment_count"], 2)
         projects = {project["name"]: project for project in result["projects"]}
+        self.assertEqual(projects["Z04"]["project_id"], "Z04")
         self.assertEqual(projects["Z04"]["scopes"], ["default"])
         self.assertTrue(projects["Z04"]["whole_session"])
         self.assertEqual(

@@ -15,7 +15,7 @@ class ProjectGlossaryTest(unittest.TestCase):
         self.assertEqual(glossary_replacements(glossary)["Taktat"], "Traktat")
         service_rule = next(
             rule for rule in glossary_project_rules(glossary)
-            if rule["project"] == "IT-Dienstleistungen Probephase"
+            if rule["project"] == "it-ki-beratung"
         )
         self.assertEqual(
             service_rule["match_any"],
