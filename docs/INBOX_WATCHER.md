@@ -376,7 +376,11 @@ konsistentes Routingmanifest und einen gültigen Atlas-Projektkatalog:
 Der Standardaufruf ist ein Dry-Run. Er prüft den Routingplan-Hash, sämtliche
 Projekt-Slugs, die veröffentlichten Remote-Identitäten sowie Größe und SHA256
 jedes lokalen kanonischen Transkripts. Erst `--confirm` installiert ein lokales
-Paket atomar und idempotent unter `staging/project-deliveries/<delivery_id>/`.
+Paket atomar und idempotent unter
+`staging/project-deliveries/<filesystem-safe-delivery-id>/`. Der Doppelpunkt
+der kanonischen `delivery_id` wird ausschließlich im plattformübergreifend
+sicheren Verzeichnisnamen durch `__` ersetzt; in `delivery.json` bleibt die ID
+unverändert.
 Die Transkriptkopien werden vor dem zuletzt geschriebenen `delivery.json`
 verifiziert. Ein abweichendes Paket mit derselben ID wird niemals
 überschrieben.

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from export_transcript_delivery import (
     build_delivery,
+    delivery_directory_name,
     install_delivery,
     load_routing_manifest,
 )
@@ -141,10 +142,26 @@ class ExportTranscriptDeliveryTest(unittest.TestCase):
         self.assertFalse(repeated_created)
         self.assertEqual(repeated, target)
         self.assertEqual(
+            target.name,
+            "session-20260922-1501-cb301a63__"
+            + delivery["delivery_id"].rsplit(":", 1)[1],
+        )
+        self.assertNotIn(":", target.name)
+        installed_manifest = json.loads(
+            (target / "delivery.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(installed_manifest["delivery_id"], delivery["delivery_id"])
+        self.assertEqual(
             sha256_file(target / delivery["assets"][0]["relative_path"]),
             delivery["assets"][0]["sha256"],
         )
         self.assertTrue((target / "delivery.json").is_file())
+
+    def test_delivery_directory_name_replaces_only_colons(self):
+        self.assertEqual(
+            delivery_directory_name("session-20260922-1501-cb301a63:abc123"),
+            "session-20260922-1501-cb301a63__abc123",
+        )
 
     def test_rejects_tampered_manifest_unknown_project_and_changed_transcript(self):
         manifest_path = self.root / "routing.json"

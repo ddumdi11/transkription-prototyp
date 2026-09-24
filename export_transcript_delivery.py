@@ -28,6 +28,11 @@ from publish_transcripts import sha256_file
 DEFAULT_DELIVERY_DIR = Path("staging/project-deliveries")
 
 
+def delivery_directory_name(delivery_id: str) -> str:
+    """Return the cross-platform directory name for a canonical delivery ID."""
+    return delivery_id.replace(":", "__")
+
+
 def load_routing_manifest(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -244,7 +249,7 @@ def install_delivery(
 ) -> tuple[Path, bool]:
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    target = output_dir / delivery["delivery_id"]
+    target = output_dir / delivery_directory_name(delivery["delivery_id"])
     with manifest_lock(target):
         if target.exists():
             if existing_delivery_matches(target, delivery, local_paths):
