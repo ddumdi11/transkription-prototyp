@@ -30,6 +30,7 @@ from segment_metadata import SegmentMetadataError, load_segment_metadata
 
 
 DEFAULT_CONTEXT_SECONDS = 12.0
+DEFAULT_MAX_EXTENDED_SECONDS = 90.0
 DEFAULT_OUTPUT_DIR = Path("staging/quality-review")
 DEFAULT_MODEL = "medium"
 SUPPORTED_AUDIO_SUFFIXES = {".wav", ".m4a", ".mp3", ".flac", ".ogg", ".webm"}
@@ -49,6 +50,7 @@ class SegmentReviewPlan:
     previous_segment: dict[str, Any] | None
     next_segment: dict[str, Any] | None
     context_seconds: float
+    extended_to_next_segment: bool
     clip_start: float
     clip_end: float
     review_key: str
@@ -72,6 +74,7 @@ class SegmentReviewPlan:
                 "start": self.clip_start,
                 "end": self.clip_end,
                 "context_seconds": self.context_seconds,
+                "extended_to_next_segment": self.extended_to_next_segment,
             },
             "segment_text": self.candidate["raw_text"],
             "output_audio": str(self.output_audio),
@@ -110,6 +113,8 @@ def build_review_plans(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     *,
     context_seconds: float = DEFAULT_CONTEXT_SECONDS,
+    extend_to_next_segment: bool = False,
+    max_extended_seconds: float = DEFAULT_MAX_EXTENDED_SECONDS,
     max_chars_per_second: float = DEFAULT_MAX_CHARS_PER_SECOND,
     min_text_characters: int = DEFAULT_MIN_TEXT_CHARACTERS,
     short_segment_seconds: float = DEFAULT_SHORT_SEGMENT_SECONDS,
@@ -125,6 +130,8 @@ def build_review_plans(
         raise ValueError(f"Nicht unterstütztes Audioformat: {audio_path.suffix}")
     if not isfinite(context_seconds) or context_seconds < 0:
         raise ValueError("Der Kontext muss eine endliche nichtnegative Zahl sein")
+    if not isfinite(max_extended_seconds) or max_extended_seconds <= 0:
+        raise ValueError("Die maximale Erweiterung muss eine positive Zahl sein")
 
     payload = load_segment_metadata(segments_path)
     if payload.get("audio_file") != audio_path.name:
@@ -158,6 +165,15 @@ def build_review_plans(
         next_segment = segments[index + 1] if index + 1 < len(segments) else None
         clip_start = max(0.0, float(candidate["start"]) - context_seconds)
         clip_end = float(candidate["end"]) + context_seconds
+        extended = False
+        if extend_to_next_segment and next_segment is not None:
+            extended_end = min(
+                float(next_segment["start"]) + context_seconds,
+                float(candidate["start"]) + max_extended_seconds,
+            )
+            if extended_end > clip_end:
+                clip_end = extended_end
+                extended = True
         material = "\0".join(
             (
                 source_id,
@@ -182,6 +198,7 @@ def build_review_plans(
                 previous_segment=previous_segment,
                 next_segment=next_segment,
                 context_seconds=context_seconds,
+                extended_to_next_segment=extended,
                 clip_start=round(clip_start, 3),
                 clip_end=round(clip_end, 3),
                 review_key=review_key,
@@ -303,6 +320,7 @@ def extract_review_clip(
                 "end": plan.clip_end,
                 "requested_duration": round(duration, 3),
                 "context_seconds": plan.context_seconds,
+                "extended_to_next_segment": plan.extended_to_next_segment,
             },
             "clip": {
                 "file": plan.output_audio.name,
@@ -432,12 +450,17 @@ def write_local_retranscription(
         prompt=prompt,
         hotwords=hotwords,
     )
+    requested_duration = plan.clip_end - plan.clip_start
     segments = [
         {
             "start": round(float(segment.start), 3),
             "end": round(float(segment.end), 3),
             "source_start": round(plan.clip_start + float(segment.start), 3),
             "source_end": round(plan.clip_start + float(segment.end), 3),
+            "timestamp_within_requested_window": (
+                0 <= float(segment.start) <= float(segment.end)
+                <= requested_duration + 0.01
+            ),
             "text": segment.text,
         }
         for segment in result.segments
@@ -453,6 +476,10 @@ def write_local_retranscription(
         "recognition": recognition,
         "text": result.text,
         "segments": segments,
+        "timestamp_warning_count": sum(
+            not segment["timestamp_within_requested_window"]
+            for segment in segments
+        ),
         "comparison": compare_segment_text(plan.candidate["raw_text"], result.text),
     }
     output_dir = target.parent
@@ -530,6 +557,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Audio vor und nach dem nominellen Intervall (Standard: 12)",
     )
     parser.add_argument(
+        "--extend-to-next-segment", action="store_true",
+        help=(
+            "Prüffenster bei kollabierten Endzeiten kontrolliert bis zur "
+            "nächsten Segmentgrenze erweitern"
+        ),
+    )
+    parser.add_argument(
+        "--max-extended-seconds", type=float,
+        default=DEFAULT_MAX_EXTENDED_SECONDS,
+        help="Obergrenze ab nominellem Start für die Erweiterung (Standard: 90)",
+    )
+    parser.add_argument(
         "--max-chars-per-second", type=float,
         default=DEFAULT_MAX_CHARS_PER_SECOND,
     )
@@ -585,6 +624,8 @@ def main(argv: list[str] | None = None) -> int:
                 segments_path,
                 args.output_dir,
                 context_seconds=args.context_seconds,
+                extend_to_next_segment=args.extend_to_next_segment,
+                max_extended_seconds=args.max_extended_seconds,
                 max_chars_per_second=args.max_chars_per_second,
                 min_text_characters=args.min_text_characters,
                 short_segment_seconds=args.short_segment_seconds,

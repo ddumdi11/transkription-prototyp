@@ -87,6 +87,10 @@ ausgewählte Segmente standardmäßig zwölf Sekunden Kontext auf jeder Seite:
   --input AUDIO_1 SEGMENTE_1 \
   --input AUDIO_2 SEGMENTE_2 \
   --confirm --transcribe-local
+
+# Einen kollabierten Bereich kontrolliert bis zum nächsten Segment erweitern
+.venv/bin/python review_segment_quality.py AUDIO SEGMENTE \
+  --extend-to-next-segment --confirm --transcribe-local
 ```
 
 Die Ausgaben liegen ausschließlich unter `staging/quality-review/`. Die
@@ -95,12 +99,21 @@ Hotword-Konfiguration reproduzierbar und ordnet ihre relativen Zeitangaben
 wieder der Zeitachse der Quellaufnahme zu. Die errechnete Wortabdeckung ist
 diagnostisch: Eine geringe Übereinstimmung löst eine menschliche Hörprüfung
 aus, aber niemals eine automatische Textänderung.
+Zeitangaben der Neu-Transkription, die selbst außerhalb des angeforderten
+Prüffensters liegen, bleiben unverändert erhalten, werden aber mit
+`timestamp_within_requested_window: false` und einem Warnungszähler markiert.
 
 Der unabhängige Kontrolllauf lässt Prompt und Hotwords standardmäßig weg. Bei
 kurzen Ausschnitten kann ein umfangreiches Glossar sonst selbst zum Inhalt der
 Erkennung werden. `--use-pipeline-hints` ist deshalb eine ausdrückliche zweite
 Messvariante und kein Default. Jede Konfiguration bekommt über ihren Hash eine
 eigene Ergebnisdatei; kein vorhandener Vergleich wird überschrieben.
+
+Bei stark kollabierten Endzeiten kann der gesuchte Text erst deutlich nach dem
+nominellen Intervall liegen. `--extend-to-next-segment` nutzt dann die nächste
+bekannte ASR-Grenze als kontrolliertes Fensterende. Eine Obergrenze von
+standardmäßig 90 Sekunden ab dem nominellen Segmentstart verhindert
+unbegrenzte Ausschnitte; sie ist mit `--max-extended-seconds` einstellbar.
 
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben

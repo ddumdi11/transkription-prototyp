@@ -99,6 +99,30 @@ class SegmentQualityReviewTest(unittest.TestCase):
 
         self.assertEqual([plan.candidate["id"] for plan in plans], ["segment-000001"])
 
+    def test_can_extend_window_to_next_segment_with_hard_limit(self):
+        plan = build_review_plans(
+            self.audio,
+            self.segments,
+            self.output,
+            context_seconds=4.0,
+            extend_to_next_segment=True,
+            max_extended_seconds=5.0,
+        )[0]
+
+        self.assertTrue(plan.extended_to_next_segment)
+        self.assertEqual(plan.clip_start, 6.0)
+        self.assertEqual(plan.clip_end, 15.0)
+
+        limited = build_review_plans(
+            self.audio,
+            self.segments,
+            self.output,
+            context_seconds=4.0,
+            extend_to_next_segment=True,
+            max_extended_seconds=4.5,
+        )[0]
+        self.assertEqual(limited.clip_end, 14.5)
+
     def test_main_is_dry_run_by_default_and_json_is_valid(self):
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
@@ -168,6 +192,11 @@ class SegmentQualityReviewTest(unittest.TestCase):
                         end=7.2,
                         text=" Sehr viel gesprochener Text für nur eine Zehntelsekunde. ",
                     ),
+                    TranscriptSegment(
+                        start=8.0,
+                        end=9.0,
+                        text=" Nachlauf mit erneut unplausibler Zeitgrenze. ",
+                    ),
                 ),
             )
         )
@@ -188,6 +217,13 @@ class SegmentQualityReviewTest(unittest.TestCase):
         self.assertEqual(len(result["recognition"]["sha256"]), 64)
         self.assertEqual(result["segments"][0]["source_start"], 9.8)
         self.assertEqual(result["segments"][0]["source_end"], 13.2)
+        self.assertTrue(
+            result["segments"][0]["timestamp_within_requested_window"]
+        )
+        self.assertFalse(
+            result["segments"][1]["timestamp_within_requested_window"]
+        )
+        self.assertEqual(result["timestamp_warning_count"], 1)
         self.assertEqual(
             result["comparison"]["assessment"], "original_text_supported"
         )

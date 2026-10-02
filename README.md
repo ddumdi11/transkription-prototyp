@@ -319,6 +319,14 @@ Mehrere `--input AUDIO SEGMENTE` werden mit nur einer Modellladung als Batch
 verarbeitet; unterschiedliche Erkennungseinstellungen erhalten getrennte
 Ergebnisdateien.
 
+Wenn der erste Vergleich nur einen Textanfang findet und die nächste
+ASR-Segmentgrenze weit entfernt liegt, erweitert
+`--extend-to-next-segment` den Ausschnitt kontrolliert bis zu dieser Grenze
+plus Kontext. `--max-extended-seconds` begrenzt die Erweiterung ab dem
+nominellen Start standardmäßig auf 90 Sekunden. Dadurch lassen sich
+zusammengeschobene Zeitgrenzen untersuchen, ohne versehentlich beliebig lange
+Aufnahmebereiche auszuschneiden.
+
 Der JSON-Vergleich misst die geordnete Wortabdeckung des ursprünglichen
 Segmenttexts. Er ist nur ein Prüfsignal und kein automatischer
 Wahrheitsentscheid; niedrige oder teilweise Übereinstimmung bleibt eine
