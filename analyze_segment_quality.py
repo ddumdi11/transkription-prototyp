@@ -555,13 +555,20 @@ def main(argv: list[str] | None = None) -> int:
             print(_human_report(report))
         return 0
     except (
+        ImportError,
         OSError,
         RuntimeError,
         SegmentMetadataError,
         ValueError,
         subprocess.SubprocessError,
     ) as exc:
-        if isinstance(exc, subprocess.CalledProcessError):
+        if isinstance(exc, ImportError):
+            exc = RuntimeError(
+                "Audioanalyse benötigt NumPy und Faster-Whisper. "
+                "Installieren mit: python -m pip install "
+                "-r requirements.txt -r requirements-local.txt"
+            )
+        elif isinstance(exc, subprocess.CalledProcessError):
             stderr = exc.stderr or b""
             detail = (
                 stderr.decode(errors="replace")

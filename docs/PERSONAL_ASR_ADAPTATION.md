@@ -45,6 +45,9 @@ fehlenden oder halluzinierten Text. Der Prüfer verändert grundsätzlich keine
 Datei und führt keine automatische Korrektur durch.
 
 ```bash
+.venv/bin/python -m pip install \
+  -r requirements.txt -r requirements-local.txt
+
 .venv/bin/python analyze_segment_quality.py \
   "staging/inbox/Aufnahme #1__DRIVE-ID.wav" \
   "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json"
@@ -52,7 +55,9 @@ Datei und führt keine automatische Korrektur durch.
 
 Mit `--json` kann der Bericht später von einer Prüfansicht verarbeitet werden.
 `--segment-id SEGMENT-ID` nimmt eine Stelle unabhängig von den automatischen
-Schwellen auf; `--text-only` prüft ausschließlich die Segmentmetadaten.
+Schwellen auf; `--text-only` prüft ausschließlich die Segmentmetadaten und
+benötigt die in `requirements-local.txt` aufgeführten Audio-Abhängigkeiten
+NumPy und Faster-Whisper nicht.
 
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben

@@ -243,6 +243,23 @@ class SegmentQualityTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("decode failed", stderr.getvalue())
 
+    def test_main_reports_missing_audio_dependency_without_traceback(self):
+        stderr = io.StringIO()
+        with (
+            patch(
+                "analyze_segment_quality.analyze_audio_context",
+                side_effect=ImportError("No module named 'faster_whisper'"),
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
+            result = main([str(self.audio), str(self.segments)])
+
+        message = stderr.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("NumPy und Faster-Whisper", message)
+        self.assertIn("requirements-local.txt", message)
+        self.assertNotIn("Traceback", message)
+
 
 if __name__ == "__main__":
     unittest.main()
