@@ -432,6 +432,9 @@ def _human_report(report: dict[str, Any]) -> str:
             f"gemeldet: {summary['reported_segments']}"
         ),
     ]
+    if summary["total_segments"] == 0:
+        lines.append("Keine prüfbaren Sprachsegmente.")
+        return "\n".join(lines)
     if not report["segments"]:
         lines.append("Keine Auffälligkeit nach den gewählten Schwellen.")
         return "\n".join(lines)

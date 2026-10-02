@@ -285,6 +285,47 @@ bestimmtes Segment zusätzlich auf und `--text-only` überspringt die
 Audioanalyse vollständig. NumPy und Faster-Whisper werden über
 `requirements-local.txt` installiert; `--text-only` benötigt sie nicht.
 
+Dabei bezeichnet ein **ASR-Segment** immer den gesamten Modelldatensatz aus
+Segmenttext, Startzeit und Endzeit. Das **nominelle Zeitintervall** ist nur der
+Audioabschnitt zwischen diesen Zeitangaben. Bei kollabierten oder verschobenen
+Grenzen kann der Text richtig sein, obwohl das nominelle Intervall nicht zu ihm
+passt.
+
+Für eine kontrollierte Nachprüfung plant der getrennte QA-Helfer deshalb einen
+größeren **Prüfausschnitt** um das nominelle Intervall. Ohne `--confirm` zeigt
+er ausschließlich den Plan und schreibt nichts:
+
+```bash
+.venv/bin/python review_segment_quality.py \
+  "staging/inbox/Aufnahme #1__DRIVE-ID.wav" \
+  "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json"
+```
+
+Erst die Bestätigung erzeugt verlustfrei kodierte FLAC-Ausschnitte mit
+standardmäßig zwölf Sekunden Kontext davor und danach sowie JSON-Metadaten
+unter `staging/quality-review/`:
+
+```bash
+.venv/bin/python review_segment_quality.py AUDIO SEGMENTE \
+  --confirm
+```
+
+Mit `--confirm --transcribe-local` wird das Modell einmal geladen und jeder
+erzeugte Ausschnitt zusätzlich neu transkribiert. Dieser unabhängige Kontrolllauf
+verwendet standardmäßig bewusst weder Pipeline-Prompt noch Hotwords, weil diese
+einen sehr kurzen Ausschnitt übersteuern können. Nur
+`--use-pipeline-hints` aktiviert beide ausdrücklich für einen Vergleichslauf.
+Mehrere `--input AUDIO SEGMENTE` werden mit nur einer Modellladung als Batch
+verarbeitet; unterschiedliche Erkennungseinstellungen erhalten getrennte
+Ergebnisdateien.
+
+Der JSON-Vergleich misst die geordnete Wortabdeckung des ursprünglichen
+Segmenttexts. Er ist nur ein Prüfsignal und kein automatischer
+Wahrheitsentscheid; niedrige oder teilweise Übereinstimmung bleibt eine
+Aufforderung zum Probehören. `--segment-id` kann mehrfach angegeben werden, um
+gezielt einzelne Stellen auszuwählen. Es erfolgt kein Drive-Upload und keine
+Veränderung des kanonischen Transkripts.
+
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:
 
