@@ -264,6 +264,23 @@ Die fertigen Transkripte findest du in `output/` als `.md`-Dateien. Mit
 maschinenlesbare Datei `<Name>.segments.json` mit Segment-IDs, Start-/Endzeit,
 ASR-Rohtext und dem Text nach sicheren Glossarersetzungen.
 
+Die Zeitgrenzen lassen sich anschließend rein lesend auf Plausibilität prüfen:
+
+```bash
+.venv/bin/python analyze_segment_quality.py \
+  "staging/inbox/Aufnahme #1__DRIVE-ID.wav" \
+  "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json"
+```
+
+Der Prüfer meldet ungewöhnliche Textdichte oder sehr kurze Textsegmente und
+untersucht standardmäßig acht Sekunden Audio davor und danach. FFmpeg streamt
+das Fenster nur in den Arbeitsspeicher; Silero-VAD unterscheidet dort
+wahrscheinliche Sprache von Stille beziehungsweise sonstigem Geräusch. Weder
+Aufnahme noch Transkript, Segmentdatei oder Pipeline-State werden verändert.
+`--json` liefert denselben Bericht maschinenlesbar, `--segment-id` nimmt ein
+bestimmtes Segment zusätzlich auf und `--text-only` überspringt die
+Audioanalyse vollständig.
+
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:
 

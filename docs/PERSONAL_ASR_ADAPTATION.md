@@ -25,6 +25,35 @@ Glossarersetzungen. Die automatische Inbox-Pipeline aktiviert diese Ausgabe
 und trägt die eindeutige Drive-ID als `source_id` ein. Sie akzeptiert einen Job
 nur mit vorhandener Segmentdatei als abgeschlossen.
 
+## Segmentzeiten rein lesend prüfen
+
+`analyze_segment_quality.py` sucht konservativ nach Segmenten, deren Textmenge
+nicht zur angegebenen Dauer passt. Für jeden Treffer wird ein gepolstertes
+Audiofenster standardmäßig acht Sekunden vor und nach dem Segment direkt über
+FFmpeg in den Arbeitsspeicher gelesen. Der bereits mit Faster-Whisper
+installierte Silero-Sprachdetektor bewertet getrennt:
+
+- das Fenster vor dem nominellen Segment,
+- das nominelle Segment selbst,
+- das Fenster danach.
+
+Damit lässt sich unterscheiden, ob rund um einen unmöglich kurzen Zeitstempel
+weiterhin Sprache vorhanden ist, nur Geräusch erkannt wird oder das Umfeld
+still ist. Sprache vor und nach einem zu kurzen Segment ist ein Hinweis auf
+verrutschte beziehungsweise kollabierte Zeitgrenzen, aber noch kein Beweis für
+fehlenden oder halluzinierten Text. Der Prüfer verändert grundsätzlich keine
+Datei und führt keine automatische Korrektur durch.
+
+```bash
+.venv/bin/python analyze_segment_quality.py \
+  "staging/inbox/Aufnahme #1__DRIVE-ID.wav" \
+  "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json"
+```
+
+Mit `--json` kann der Bericht später von einer Prüfansicht verarbeitet werden.
+`--segment-id SEGMENT-ID` nimmt eine Stelle unabhängig von den automatischen
+Schwellen auf; `--text-only` prüft ausschließlich die Segmentmetadaten.
+
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben
 kanonischen Fachbegriffe als dauerhafte Referenz für Erklärungen und

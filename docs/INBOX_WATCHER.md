@@ -60,6 +60,13 @@ Markdown erzeugt die lokale Engine `<Name>.segments.json` mit Zeitgrenzen und
 Rohtext jedes faster-whisper-Segments sowie der eindeutigen Drive-ID als
 `source_id`. Ein Job wird nur `DONE`, wenn beide Dateien geschrieben wurden.
 
+Die lokalen Zeitgrenzen können mit `analyze_segment_quality.py` anschließend
+rein lesend geprüft werden. Das Werkzeug kombiniert Textdichte und
+Segmentdauer mit einem gepolsterten Audiofenster sowie Silero-VAD. Es meldet
+Sprache, Stille oder sonstiges Geräusch vor, innerhalb und nach auffälligen
+Segmenten, schreibt aber weder Clips noch Berichte und ändert keinen
+Pipeline-Status. Eine JSON-Ausgabe ist mit `--json` möglich.
+
 Die Vorlagen unter `systemd/` prüfen im Abstand von drei Minuten.
 
 Timerstatus anzeigen:
