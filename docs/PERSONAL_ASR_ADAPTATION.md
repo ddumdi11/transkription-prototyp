@@ -59,6 +59,62 @@ Schwellen auf; `--text-only` prüft ausschließlich die Segmentmetadaten und
 benötigt die in `requirements-local.txt` aufgeführten Audio-Abhängigkeiten
 NumPy und Faster-Whisper nicht.
 
+### Begriffe und kontrollierte Prüfausschnitte
+
+Ein **ASR-Segment** ist nicht nur der Text und auch nicht nur ein Stück Audio.
+Es ist der vom Modell erzeugte Datensatz aus Segmenttext, Startzeit und Endzeit.
+Der Bereich zwischen den beiden Zeiten heißt hier **nominelles Zeitintervall**.
+Ein **Prüfausschnitt** ist dagegen ein bewusst größeres Audiofenster um dieses
+Intervall. So kann ein korrekter Text auch dann akustisch gefunden werden, wenn
+seine Zeitgrenzen kollabiert oder verschoben sind.
+
+`review_segment_quality.py` plant für automatisch verdächtige oder explizit
+ausgewählte Segmente standardmäßig zwölf Sekunden Kontext auf jeder Seite:
+
+```bash
+# Dry-Run
+.venv/bin/python review_segment_quality.py AUDIO SEGMENTE
+
+# Verlustfreien FLAC-Ausschnitt und Metadaten lokal erzeugen
+.venv/bin/python review_segment_quality.py AUDIO SEGMENTE --confirm
+
+# Zusätzlich mit Faster-Whisper neu transkribieren und vergleichen
+.venv/bin/python review_segment_quality.py AUDIO SEGMENTE \
+  --confirm --transcribe-local
+
+# Mehrere Aufnahmen mit nur einer Modellladung prüfen
+.venv/bin/python review_segment_quality.py \
+  --input AUDIO_1 SEGMENTE_1 \
+  --input AUDIO_2 SEGMENTE_2 \
+  --confirm --transcribe-local
+
+# Einen kollabierten Bereich kontrolliert bis zum nächsten Segment erweitern
+.venv/bin/python review_segment_quality.py AUDIO SEGMENTE \
+  --extend-to-next-segment --confirm --transcribe-local
+```
+
+Die Ausgaben liegen ausschließlich unter `staging/quality-review/`. Die
+Neu-Transkription speichert ihre Modell-, Sprach-, Prompt- und
+Hotword-Konfiguration reproduzierbar und ordnet ihre relativen Zeitangaben
+wieder der Zeitachse der Quellaufnahme zu. Die errechnete Wortabdeckung ist
+diagnostisch: Eine geringe Übereinstimmung löst eine menschliche Hörprüfung
+aus, aber niemals eine automatische Textänderung.
+Zeitangaben der Neu-Transkription, die selbst außerhalb des angeforderten
+Prüffensters liegen, bleiben unverändert erhalten, werden aber mit
+`timestamp_within_requested_window: false` und einem Warnungszähler markiert.
+
+Der unabhängige Kontrolllauf lässt Prompt und Hotwords standardmäßig weg. Bei
+kurzen Ausschnitten kann ein umfangreiches Glossar sonst selbst zum Inhalt der
+Erkennung werden. `--use-pipeline-hints` ist deshalb eine ausdrückliche zweite
+Messvariante und kein Default. Jede Konfiguration bekommt über ihren Hash eine
+eigene Ergebnisdatei; kein vorhandener Vergleich wird überschrieben.
+
+Bei stark kollabierten Endzeiten kann der gesuchte Text erst deutlich nach dem
+nominellen Intervall liegen. `--extend-to-next-segment` nutzt dann die nächste
+bekannte ASR-Grenze als kontrolliertes Fensterende. Eine Obergrenze von
+standardmäßig 90 Sekunden ab dem nominellen Segmentstart verhindert
+unbegrenzte Ausschnitte; sie ist mit `--max-extended-seconds` einstellbar.
+
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben
 kanonischen Fachbegriffe als dauerhafte Referenz für Erklärungen und

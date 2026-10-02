@@ -260,6 +260,21 @@ class SegmentQualityTest(unittest.TestCase):
         self.assertIn("requirements-local.txt", message)
         self.assertNotIn("Traceback", message)
 
+    def test_human_report_distinguishes_empty_recording(self):
+        self.payload["segments"] = []
+        self.segments.write_text(json.dumps(self.payload), encoding="utf-8")
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            result = main([
+                str(self.audio),
+                str(self.segments),
+                "--text-only",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertIn("Keine prüfbaren Sprachsegmente", stdout.getvalue())
+        self.assertNotIn("Keine Auffälligkeit", stdout.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
