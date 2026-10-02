@@ -242,6 +242,18 @@ class SegmentQualityReviewTest(unittest.TestCase):
         self.assertEqual(same_path, result_path)
         self.assertFalse(created_again)
 
+        result["recognition"] = "beschädigt"
+        result_path.write_text(json.dumps(result), encoding="utf-8")
+        with self.assertRaisesRegex(FileExistsError, "Abweichende"):
+            write_local_retranscription(
+                plan,
+                provider,
+                model="medium",
+                language="de",
+                prompt="Fachbegriffe",
+                hotwords="Traktat",
+            )
+
         variant_path, variant_created = write_local_retranscription(
             plan,
             provider,

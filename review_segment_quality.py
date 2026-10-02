@@ -431,12 +431,15 @@ def write_local_retranscription(
             raise FileExistsError(
                 f"Ungültige Neu-Transkription existiert: {target}"
             ) from exc
+        saved_recognition = (
+            current.get("recognition") if isinstance(current, dict) else None
+        )
         if (
             isinstance(current, dict)
             and current.get("schema_version") == 1
             and current.get("review_key") == plan.review_key
-            and current.get("recognition", {}).get("sha256")
-            == recognition["sha256"]
+            and isinstance(saved_recognition, dict)
+            and saved_recognition.get("sha256") == recognition["sha256"]
             and current.get("clip_sha256") == _sha256(plan.output_audio)
         ):
             return target, False
