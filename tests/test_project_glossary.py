@@ -31,10 +31,12 @@ class ProjectGlossaryTest(unittest.TestCase):
         replacements = glossary_replacements(glossary)
 
         for term in (
-            "Z-System", "Abbildwerkstatt", "Lullipulli", "Qwen", "Job Queue",
-            "Checkpointing", "idempotent", "GGUF", "Bitwarden", "IHK",
+            "AudioRec", "Z-System", "Abbildwerkstatt", "Lullipulli", "Qwen",
+            "Job Queue", "Checkpointing", "idempotent", "GGUF", "Bitwarden",
+            "IHK",
         ):
             self.assertIn(term, hotwords)
+        self.assertEqual(replacements["Audio Rack"], "AudioRec")
         self.assertEqual(replacements["Set-System"], "Z-System")
         self.assertEqual(replacements["Quen"], "Qwen")
         self.assertEqual(replacements["Job-Kühe"], "Job Queue")
