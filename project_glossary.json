@@ -6,6 +6,11 @@
       "replacements": ["Deklärgerät"]
     },
     {
+      "canonical": "AudioRec",
+      "hotwords": ["AudioRec"],
+      "replacements": ["Audio Rack"]
+    },
+    {
       "canonical": "Claude",
       "hotwords": ["Claude"]
     },

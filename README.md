@@ -601,6 +601,7 @@ Dies hilft besonders bei:
 Das Skript korrigiert automatisch bekannte Erkennungsfehler:
 
 - `Deklärgerät` → `Diktiergerät`
+- `Audio Rack` → `AudioRec`
 - `Taktat` → `Traktat`
 - `Job-Kühe` → `Job Queue`
 
@@ -608,7 +609,9 @@ Mehrdeutige Wörter wie `Cloud` werden bewusst nicht automatisch ersetzt.
 `Claude`, `Claude Code` und `Claude AI` bleiben stattdessen Hotwords für die
 Spracherkennung.
 
-Du kannst die Ersetzungen in der Datei `transcribe.py` (Zeilen 28-33) anpassen oder mit `--no-replacements` deaktivieren.
+Du kannst die zentralen Fachbegriffe und sicheren Ersetzungen in
+`project_glossary.json` anpassen oder Ersetzungen mit `--no-replacements`
+deaktivieren.
 
 ### Eigene Ersetzungen definieren
 
