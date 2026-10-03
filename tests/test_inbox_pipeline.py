@@ -195,7 +195,7 @@ class InboxPipelineTest(unittest.TestCase):
         )
         logger = Mock()
 
-        result = log_segment_quality(path, "drive-id", logger)
+        result = log_segment_quality(self.db, path, "drive-id", logger)
 
         self.assertTrue(result)
         self.assertEqual(logger.warning.call_count, 2)
@@ -208,6 +208,10 @@ class InboxPipelineTest(unittest.TestCase):
         detail = logger.warning.call_args_list[1].args
         self.assertEqual(detail[1], "segment-000001")
         self.assertIn("implausible_text_density", detail[-1])
+        row = self.db.execute(
+            "SELECT status, is_current FROM quality_reviews WHERE drive_id='drive-id'"
+        ).fetchone()
+        self.assertEqual((row["status"], row["is_current"]), ("PENDING", 1))
 
     def test_quality_log_treats_empty_transcript_as_nonblocking_state(self):
         path = Path(self.temp.name) / "segments.json"
@@ -221,7 +225,7 @@ class InboxPipelineTest(unittest.TestCase):
         )
         logger = Mock()
 
-        self.assertTrue(log_segment_quality(path, "drive-id", logger))
+        self.assertTrue(log_segment_quality(self.db, path, "drive-id", logger))
         logger.warning.assert_not_called()
         self.assertEqual(logger.info.call_args.args[-1], "drive-id")
 
@@ -229,7 +233,7 @@ class InboxPipelineTest(unittest.TestCase):
         logger = Mock()
         missing = Path(self.temp.name) / "missing.segments.json"
 
-        self.assertFalse(log_segment_quality(missing, "drive-id", logger))
+        self.assertFalse(log_segment_quality(self.db, missing, "drive-id", logger))
         logger.exception.assert_called_once()
 
     def test_publish_pending_processes_done_job(self):

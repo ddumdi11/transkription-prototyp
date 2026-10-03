@@ -82,6 +82,51 @@ journalctl --user -u transkription-inbox.service \
   | grep -E "Job QUALITY|QA candidate"
 ```
 
+### Qualitätsentscheidungen persistent festhalten
+
+Neue automatische Kandidaten werden zusätzlich in der lokalen
+Pipeline-Datenbank gespeichert. Der Standardaufruf zeigt ausschließlich lesend
+die aktuellen Fälle; `--status PENDING` begrenzt die Anzeige auf offene
+Hörprüfungen:
+
+```bash
+.venv/bin/python quality_reviews.py --status PENDING
+```
+
+Bereits vorhandene Segmentdateien aus der Zeit vor dieser Erweiterung können
+ausdrücklich registriert werden:
+
+```bash
+.venv/bin/python quality_reviews.py \
+  --register-segments "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json"
+```
+
+Eine menschliche Entscheidung ist immer an Drive-ID, Segment-ID und den
+angezeigten SHA256-Fingerabdruck des konkreten Kandidaten gebunden. Bestätigte
+Fälle erhalten mindestens eine Fehlerart:
+
+```bash
+.venv/bin/python quality_reviews.py \
+  --drive-id DRIVE_ID \
+  --segment-id segment-000001 \
+  --candidate-hash SHA256 \
+  --confirm \
+  --issue BOUNDARY_ERROR \
+  --issue WORD_ERROR \
+  --note "Text vorhanden; Segmentgrenzen kollabiert."
+```
+
+Unterstützte Fehlerarten sind `BOUNDARY_ERROR`, `WORD_ERROR`, `OMISSION`,
+`HALLUCINATION` und `OTHER`. Ein Fehlalarm wird stattdessen mit `--dismiss`
+markiert. Abweichende Zweitentscheidungen werden abgelehnt. Ändert sich ein
+Kandidat nach einer erneuten Transkription, bleibt die frühere Entscheidung als
+Historie erhalten und die neue Fassung wird wieder `PENDING`.
+
+Diese Statusverwaltung verändert weder das kanonische Markdown-Transkript noch
+Audio- oder Drive-Dateien. `confirmed_text` und `speaker_intent` sind getrennte
+optionale Felder, damit tatsächlich Gehörtes nicht mit einer nachträglichen
+inhaltlichen Präzisierung vermischt wird.
+
 Die Vorlagen unter `systemd/` prüfen im Abstand von drei Minuten.
 
 Timerstatus anzeigen:
