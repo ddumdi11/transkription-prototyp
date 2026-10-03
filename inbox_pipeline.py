@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import time
 
+from analyze_segment_quality import find_suspicious_segments
 from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_state,
                            setup_logging, stage_ready_file)
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
@@ -104,6 +105,48 @@ def validate_segment_metadata(path: Path, drive_id: str) -> None:
         load_segment_metadata(path, expected_source_id=drive_id)
     except SegmentMetadataError as exc:
         raise RuntimeError(str(exc)) from exc
+
+
+def log_segment_quality(path: Path, drive_id: str, logger) -> bool:
+    """Log advisory text-only timestamp candidates without blocking a job."""
+    try:
+        payload = load_segment_metadata(path, expected_source_id=drive_id)
+        candidates = find_suspicious_segments(payload)
+    except Exception as exc:
+        logger.exception("Job QUALITY CHECK FAILED id=%s: %s", drive_id, exc)
+        return False
+
+    total = len(payload["segments"])
+    if not total:
+        logger.info(
+            "Job QUALITY id=%s segments=0 candidates=0 state=no_segments",
+            drive_id,
+        )
+        return True
+    if not candidates:
+        logger.info(
+            "Job QUALITY id=%s segments=%d candidates=0", drive_id, total
+        )
+        return True
+
+    logger.warning(
+        "Job QUALITY id=%s segments=%d candidates=%d review=required",
+        drive_id,
+        total,
+        len(candidates),
+    )
+    for candidate in candidates:
+        logger.warning(
+            "  QA candidate id=%s interval=%.3f-%.3f duration=%.3f "
+            "chars_per_second=%s flags=%s",
+            candidate["id"],
+            candidate["start"],
+            candidate["end"],
+            candidate["duration"],
+            candidate["chars_per_second"],
+            ",".join(candidate["flags"]),
+        )
+    return True
 
 
 def transcribe_one(db: sqlite3.Connection, drive_id: str, audio_path: Path, now: float) -> Path:
@@ -237,6 +280,11 @@ def main() -> int:
                                 "geladen" if downloaded else "vorhanden")
                     transcript = transcribe_one(db, job["drive_id"], audio_path, time.time())
                     logger.info("Job DONE id=%s transcript=%s", job["drive_id"], transcript)
+                    log_segment_quality(
+                        transcript.with_suffix(".segments.json"),
+                        job["drive_id"],
+                        logger,
+                    )
                     if AUTO_PUBLISH:
                         failures += publish_completed(
                             db, TRANSCRIPTS_TARGET, job["drive_id"], logger

@@ -5,8 +5,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from inbox_pipeline import (activate_from_id, activation_cutoff, ensure_pipeline_state,
-                            log_routing_plan, notify_auth_failure, pending_ready,
-                            publish_completed, publish_pending, transcribe_one,
+                            log_routing_plan, log_segment_quality,
+                            notify_auth_failure, pending_ready, publish_completed,
+                            publish_pending, transcribe_one,
                             validate_segment_metadata)
 from inbox_watcher import classify, open_state
 
@@ -167,6 +168,69 @@ class InboxPipelineTest(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(RuntimeError, "Segment 1"):
                     validate_segment_metadata(path, "drive-id")
+
+    def test_quality_log_reports_text_only_timestamp_candidates(self):
+        path = Path(self.temp.name) / "segments.json"
+        path.write_text(
+            json.dumps({
+                "schema_version": 1,
+                "source_id": "drive-id",
+                "segments": [
+                    {
+                        "id": "segment-000001",
+                        "start": 10.0,
+                        "end": 10.1,
+                        "raw_text": (
+                            " Sehr viel Text für ein nominell viel zu kurzes "
+                            "Zeitintervall. "
+                        ),
+                        "text": (
+                            "Sehr viel Text für ein nominell viel zu kurzes "
+                            "Zeitintervall."
+                        ),
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+        logger = Mock()
+
+        result = log_segment_quality(path, "drive-id", logger)
+
+        self.assertTrue(result)
+        self.assertEqual(logger.warning.call_count, 2)
+        summary = logger.warning.call_args_list[0].args
+        self.assertEqual(
+            summary[0],
+            "Job QUALITY id=%s segments=%d candidates=%d review=required",
+        )
+        self.assertEqual(summary[1:], ("drive-id", 1, 1))
+        detail = logger.warning.call_args_list[1].args
+        self.assertEqual(detail[1], "segment-000001")
+        self.assertIn("implausible_text_density", detail[-1])
+
+    def test_quality_log_treats_empty_transcript_as_nonblocking_state(self):
+        path = Path(self.temp.name) / "segments.json"
+        path.write_text(
+            json.dumps({
+                "schema_version": 1,
+                "source_id": "drive-id",
+                "segments": [],
+            }),
+            encoding="utf-8",
+        )
+        logger = Mock()
+
+        self.assertTrue(log_segment_quality(path, "drive-id", logger))
+        logger.warning.assert_not_called()
+        self.assertEqual(logger.info.call_args.args[-1], "drive-id")
+
+    def test_quality_log_failure_does_not_raise(self):
+        logger = Mock()
+        missing = Path(self.temp.name) / "missing.segments.json"
+
+        self.assertFalse(log_segment_quality(missing, "drive-id", logger))
+        logger.exception.assert_called_once()
 
     def test_publish_pending_processes_done_job(self):
         item = audio("new", "new.wav", "bbb")

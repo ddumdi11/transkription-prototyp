@@ -67,6 +67,21 @@ Sprache, Stille oder sonstiges Geräusch vor, innerhalb und nach auffälligen
 Segmenten, schreibt aber weder Clips noch Berichte und ändert keinen
 Pipeline-Status. Eine JSON-Ausgabe ist mit `--json` möglich.
 
+Nach jedem neuen `Job DONE` wendet die automatische Pipeline dieselben
+konservativen Schwellen zunächst ausschließlich auf Segmenttexte und
+Zeitangaben an. Dieser schnelle Schritt lädt kein Modell, liest kein Audio und
+blockiert weder Veröffentlichung noch den nächsten Job. Im Journal erscheint
+entweder `Job QUALITY ... candidates=0`, für sprachlose Kurzaufnahmen
+`state=no_segments` oder eine Warnung mit den betroffenen Segment-IDs und
+`review=required`. Erst ein ausdrücklicher Aufruf von
+`review_segment_quality.py --confirm` erzeugt lokale Prüfausschnitte.
+
+```bash
+journalctl --user -u transkription-inbox.service \
+  --since today --no-pager -o cat \
+  | grep -E "Job QUALITY|QA candidate"
+```
+
 Die Vorlagen unter `systemd/` prüfen im Abstand von drei Minuten.
 
 Timerstatus anzeigen:
