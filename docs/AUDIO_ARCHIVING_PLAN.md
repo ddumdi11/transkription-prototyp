@@ -1,6 +1,6 @@
 # Geplanter Ausbau: verlustfreie Audioarchivierung
 
-**Status:** v0.1 als rein lesender Dry-Run implementiert; Konvertierung folgt
+**Status:** v0.1 und lokale Konvertierung v0.2 implementiert; Drive-Upload folgt
 
 Die WAV-Dateien der Live-Inbox belegen auf Google Drive zunehmend viel Platz.
 Nach vollständig abgeschlossener Verarbeitung sollen geeignete Originale daher
@@ -72,6 +72,40 @@ verlustfreie Archivkopie nicht, blockieren aber eine spätere Bereinigung.
 `cleanup_ready` bleibt in v0.1 ausnahmslos `false`, weil weder ein verifiziertes
 FLAC noch eine Aufbewahrungsrichtlinie existiert.
 
+## Lokale FLAC-Konvertierung v0.2
+
+`convert_audio_archive.py` übernimmt genau einen `CANDIDATE` aus dem Archivplan.
+Ohne Bestätigung zeigt es ausschließlich den lokalen Plan:
+
+```bash
+.venv/bin/python convert_audio_archive.py --drive-id DRIVE_ID
+```
+
+Erst die ausdrückliche Bestätigung erzeugt unter `staging/audio-archive/` ein
+atomar installiertes Paket aus FLAC und `archive.json`:
+
+```bash
+.venv/bin/python convert_audio_archive.py \
+  --drive-id DRIVE_ID \
+  --confirm
+```
+
+Vor der Kodierung werden Größe und tatsächlicher Quellhash erneut mit dem
+Pipeline-State verglichen. Dafür arbeitet die Konvertierung mit einer temporären
+WAV-Momentaufnahme: Erst nachdem deren Größe und Hash feststehen, wird genau
+diese unveränderliche Kopie sondiert, kodiert und vollständig dekodiert. Vor der
+Paketinstallation wird sie wieder entfernt. WAV und erzeugtes FLAC müssen
+jeweils genau eine Audiospur besitzen; dadurch kann keine zusätzliche Spur
+unbemerkt entfallen. Nur wenn PCM-SHA256, Dauer, Kanalzahl und Abtastrate
+übereinstimmen, wird das Paket installiert. Gleichzeitige Aufrufe für dasselbe
+Ziel werden serialisiert;
+identische Wiederholungen sind idempotent, abweichende vorhandene Ergebnisse
+werden abgelehnt. Das WAV, SQLite und Drive bleiben unverändert.
+
+Auch ein erfolgreich geprüftes lokales Paket setzt `cleanup_ready` weiterhin
+auf `false`: Remote-Upload, Remote-Verifikation und Aufbewahrungsrichtlinie
+fehlen zu diesem Zeitpunkt noch.
+
 ## Vorgeschlagene Ausbaustufen
 
 - **v0.1:** rein lesender Archivplan ohne Schema- oder Zustandsänderung
@@ -79,6 +113,6 @@ FLAC noch eine Aufbewahrungsrichtlinie existiert.
 - **v0.3:** idempotenter Upload in den Drive-Archivordner
 - **v0.4:** Aufbewahrungsfrist und ausdrücklich aktivierte Bereinigung
 
-Vor v0.2 muss der per Drive-ID eindeutig adressierte Zielordner festgelegt
+Vor v0.3 muss der per Drive-ID eindeutig adressierte Zielordner festgelegt
 werden. Aufbewahrungsdauer und eine Löschrichtlinie werden erst für v0.4
 entschieden.
