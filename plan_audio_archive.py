@@ -5,19 +5,33 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from pathlib import Path
 import sqlite3
+import sys
 from typing import Any
 
 from analyze_segment_quality import find_suspicious_segments
-from inbox_watcher import setup_logging, staging_name
+from inbox_watcher import staging_name
 from quality_reviews import candidate_hash
 from segment_metadata import SegmentMetadataError, load_segment_metadata
 
 
 DEFAULT_STATE = Path(".inbox-watcher/state.sqlite3")
 DEFAULT_ARCHIVE_TARGET = os.environ.get("AUDIOREC_ARCHIVE_TARGET")
+
+
+def setup_cli_logging() -> logging.Logger:
+    """Return a stderr-only logger that cannot create dry-run artifacts."""
+    logger = logging.getLogger("audio_archive_planner")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
+    logger.propagate = False
+    return logger
 
 
 def open_readonly_state(path: Path) -> sqlite3.Connection:
@@ -283,7 +297,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    logger = setup_logging(args.state.parent)
+    logger = setup_cli_logging()
     try:
         with open_readonly_state(args.state) as db:
             items = build_plan(

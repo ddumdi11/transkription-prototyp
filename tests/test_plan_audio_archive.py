@@ -8,6 +8,7 @@ from analyze_segment_quality import find_suspicious_segments
 from inbox_watcher import open_state
 from plan_audio_archive import (
     build_plan,
+    main,
     open_readonly_state,
     summarize,
 )
@@ -179,6 +180,11 @@ class AudioArchivePlanTest(unittest.TestCase):
     def test_unknown_selection_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unbekannte Drive-ID"):
             build_plan(self.db, selected_ids={"missing"})
+
+    def test_missing_state_does_not_create_logging_directory(self):
+        missing = self.root / "not-created" / "state.sqlite3"
+        self.assertEqual(main(["--state", str(missing)]), 1)
+        self.assertFalse(missing.parent.exists())
 
 
 if __name__ == "__main__":
