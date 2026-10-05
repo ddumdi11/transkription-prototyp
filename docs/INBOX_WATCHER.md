@@ -247,6 +247,11 @@ Drive-Dateien und gibt keine WAV-Datei zur Löschung frei. Sicherheitsgrenzen,
 Prüfschritte und Ausbaustufen stehen in
 [`AUDIO_ARCHIVING_PLAN.md`](AUDIO_ARCHIVING_PLAN.md).
 
+Die lokale Ausbaustufe v0.2 wird getrennt und nur nach ausdrücklichem
+`--confirm` über `convert_audio_archive.py` gestartet. Sie erzeugt ein atomar
+installiertes FLAC-Paket und vergleicht den vollständig dekodierten PCM-Inhalt
+mit dem WAV. Upload und Löschung gehören ausdrücklich nicht zu diesem Schritt.
+
 ## Bestätigte Korrekturbeispiele vorbereiten
 
 `create_correction_sample.py` verbindet eine lokale Aufnahme ausdrücklich mit
