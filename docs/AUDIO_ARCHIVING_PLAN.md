@@ -91,12 +91,14 @@ atomar installiertes Paket aus FLAC und `archive.json`:
 ```
 
 Vor der Kodierung werden Größe und tatsächlicher Quellhash erneut mit dem
-Pipeline-State verglichen. WAV und erzeugtes FLAC müssen jeweils genau eine
-Audiospur besitzen; dadurch kann keine zusätzliche Spur unbemerkt entfallen.
-Danach wird das FLAC vollständig in ein kanonisches PCM-Format dekodiert. Nur
-wenn dessen SHA256 sowie Dauer, Kanalzahl und Abtastrate mit dem vollständig
-dekodierten WAV übereinstimmen, wird das Paket installiert. Gleichzeitige
-Aufrufe für dasselbe Ziel werden serialisiert;
+Pipeline-State verglichen. Dafür arbeitet die Konvertierung mit einer temporären
+WAV-Momentaufnahme: Erst nachdem deren Größe und Hash feststehen, wird genau
+diese unveränderliche Kopie sondiert, kodiert und vollständig dekodiert. Vor der
+Paketinstallation wird sie wieder entfernt. WAV und erzeugtes FLAC müssen
+jeweils genau eine Audiospur besitzen; dadurch kann keine zusätzliche Spur
+unbemerkt entfallen. Nur wenn PCM-SHA256, Dauer, Kanalzahl und Abtastrate
+übereinstimmen, wird das Paket installiert. Gleichzeitige Aufrufe für dasselbe
+Ziel werden serialisiert;
 identische Wiederholungen sind idempotent, abweichende vorhandene Ergebnisse
 werden abgelehnt. Das WAV, SQLite und Drive bleiben unverändert.
 

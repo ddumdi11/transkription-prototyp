@@ -129,10 +129,13 @@ class ConvertAudioArchiveTest(unittest.TestCase):
 
     def test_conversion_is_atomic_idempotent_and_preserves_source(self):
         original = self.source.read_bytes()
+        conversion_inputs = []
 
         def fake_conversion(command, _timeout):
             self.assertEqual(command[0], "ffmpeg")
             self.assertIn("flac", command)
+            conversion_inputs.append(Path(command[command.index("-i") + 1]))
+            self.assertTrue(conversion_inputs[-1].is_file())
             Path(command[-1]).write_bytes(b"verified flac")
             return subprocess.CompletedProcess(command, 0, "", "")
 
@@ -145,14 +148,18 @@ class ConvertAudioArchiveTest(unittest.TestCase):
             patch(
                 "convert_audio_archive.decoded_pcm_sha256",
                 side_effect=["a" * 64, "a" * 64],
-            ),
+            ) as decoded,
         ):
             audio, metadata, created = convert_one(self.plan)
 
         self.assertTrue(created)
         self.assertEqual(self.source.read_bytes(), original)
+        self.assertEqual(conversion_inputs[0].name, ".source.wav")
+        self.assertNotEqual(conversion_inputs[0], self.source)
+        self.assertEqual(Path(decoded.call_args_list[0].args[0]).name, ".source.wav")
         self.assertTrue(audio.is_file())
         self.assertTrue(metadata.is_file())
+        self.assertEqual(list(audio.parent.glob("*.wav")), [])
         payload = json.loads(metadata.read_text(encoding="utf-8"))
         self.assertTrue(payload["verification"]["full_decode"])
         self.assertFalse(payload["cleanup_ready"])
@@ -170,7 +177,8 @@ class ConvertAudioArchiveTest(unittest.TestCase):
         changed_plan["source_hash"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "WAV-Hash"):
             convert_one(changed_plan)
-        self.assertFalse(self.output.exists())
+        self.assertFalse(Path(self.plan["package_dir"]).exists())
+        self.assertEqual(list(self.output.glob(".*.tmp")), [])
 
         def failed_conversion(_command, _timeout):
             raise RuntimeError("FFmpeg test failure")

@@ -296,6 +296,18 @@ def existing_package_matches(plan: dict[str, Any]) -> bool:
         return False
 
 
+def verify_source_snapshot(path: Path, plan: dict[str, Any]) -> str:
+    """Bind one immutable processing input to the planned Drive content."""
+    if not path.is_file():
+        raise ValueError(f"Lokales WAV fehlt: {path}")
+    if path.stat().st_size != plan["source_size"]:
+        raise ValueError("Lokale WAV-Größe stimmt nicht mit dem Drive-State überein")
+    actual_hash = file_digest(path, plan["source_hash_type"])
+    if actual_hash != str(plan["source_hash"]).lower():
+        raise ValueError("Lokaler WAV-Hash stimmt nicht mit dem Drive-State überein")
+    return actual_hash
+
+
 def convert_one(
     plan: dict[str, Any], timeout_seconds: float | None = None
 ) -> tuple[Path, Path, bool]:
@@ -308,15 +320,11 @@ def convert_one(
 
     if not source_audio.is_file():
         raise ValueError(f"Lokales WAV fehlt: {source_audio}")
-    if source_audio.stat().st_size != plan["source_size"]:
-        raise ValueError("Lokale WAV-Größe hat sich seit dem Dry-Run geändert")
-    actual_source_hash = file_digest(source_audio, plan["source_hash_type"])
-    if actual_source_hash != str(plan["source_hash"]).lower():
-        raise ValueError("Lokaler WAV-Hash stimmt nicht mit dem Drive-State überein")
 
     output_root.mkdir(parents=True, exist_ok=True)
     with archive_lock(package_dir):
         if package_dir.exists():
+            verify_source_snapshot(source_audio, plan)
             if existing_package_matches(plan):
                 return archive_file, metadata_file, False
             raise FileExistsError(
@@ -326,12 +334,15 @@ def convert_one(
         temporary_dir = Path(tempfile.mkdtemp(
             prefix=f".{package_dir.name}.", suffix=".tmp", dir=output_root
         ))
+        source_snapshot = temporary_dir / f".source{source_audio.suffix.lower()}"
         temporary_audio = temporary_dir / archive_file.name
         temporary_metadata = temporary_dir / metadata_file.name
         installed = False
         try:
+            shutil.copyfile(source_audio, source_snapshot)
+            actual_source_hash = verify_source_snapshot(source_snapshot, plan)
             probe_timeout = operation_timeout(0.0, timeout_seconds)
-            source_probe = probe_audio(source_audio, probe_timeout)
+            source_probe = probe_audio(source_snapshot, probe_timeout)
             if source_probe["audio_stream_count"] != 1:
                 raise ValueError(
                     f"WAV enthält {source_probe['audio_stream_count']} Audiospuren; "
@@ -339,7 +350,7 @@ def convert_one(
                 )
             timeout = operation_timeout(source_probe["duration"], timeout_seconds)
             _run([
-                "ffmpeg", "-v", "error", "-n", "-i", str(source_audio),
+                "ffmpeg", "-v", "error", "-n", "-i", str(source_snapshot),
                 "-map", "0:a:0", "-vn", "-sn", "-dn",
                 "-c:a", "flac", "-compression_level", "8",
                 str(temporary_audio),
@@ -348,7 +359,7 @@ def convert_one(
                 raise RuntimeError("FFmpeg hat keine verwendbare FLAC-Datei erzeugt")
 
             archive_probe = probe_audio(temporary_audio, timeout)
-            source_pcm = decoded_pcm_sha256(source_audio, timeout)
+            source_pcm = decoded_pcm_sha256(source_snapshot, timeout)
             archive_pcm = decoded_pcm_sha256(temporary_audio, timeout)
             verification = validate_media_match(
                 source_probe, archive_probe, source_pcm, archive_pcm
@@ -384,6 +395,7 @@ def convert_one(
                 "quality_status_at_conversion": plan["quality_status"],
                 "cleanup_ready": False,
             }
+            source_snapshot.unlink()
             with temporary_metadata.open("w", encoding="utf-8") as handle:
                 json.dump(payload, handle, ensure_ascii=False, indent=2)
                 handle.write("\n")
