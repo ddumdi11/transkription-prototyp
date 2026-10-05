@@ -38,7 +38,8 @@ class ConvertAudioArchiveTest(unittest.TestCase):
         self.output = self.root / "archive"
         self.plan = build_conversion_plan(item, self.output)
         self.source_probe = {
-            "codec": "pcm_s16le", "sample_rate": 48000, "channels": 1,
+            "audio_stream_count": 1, "codec": "pcm_s16le",
+            "sample_rate": 48000, "channels": 1,
             "channel_layout": "mono", "duration": 60.0,
         }
         self.archive_probe = {**self.source_probe, "codec": "flac"}
@@ -76,6 +77,7 @@ class ConvertAudioArchiveTest(unittest.TestCase):
             probe = probe_audio(self.source, 30.0)
         self.assertEqual(probe["duration"], 12.5)
         self.assertEqual(probe["sample_rate"], 48000)
+        self.assertEqual(probe["audio_stream_count"], 1)
 
         digest = "a" * 64
         completed.stdout = f"SHA256={digest}\n"
@@ -91,6 +93,23 @@ class ConvertAudioArchiveTest(unittest.TestCase):
         })
         with patch("convert_audio_archive._run", return_value=completed):
             self.assertEqual(probe_audio(self.source, 30.0)["duration"], 13.25)
+
+        completed.stdout = json.dumps({
+            "streams": [
+                {
+                    "codec_name": "pcm_s16le", "sample_rate": "48000",
+                    "channels": 1, "duration": "13.25",
+                },
+                {
+                    "codec_name": "pcm_s16le", "sample_rate": "48000",
+                    "channels": 1, "duration": "13.25",
+                },
+            ],
+            "format": {"duration": "13.25"},
+        })
+        with patch("convert_audio_archive._run", return_value=completed):
+            multi = probe_audio(self.source, 30.0)
+        self.assertEqual(multi["audio_stream_count"], 2)
 
     def test_media_verification_rejects_lossy_or_changed_output(self):
         verified = validate_media_match(
@@ -164,6 +183,17 @@ class ConvertAudioArchiveTest(unittest.TestCase):
                 convert_one(self.plan)
         self.assertFalse(Path(self.plan["package_dir"]).exists())
         self.assertEqual(list(self.output.glob(".*.tmp")), [])
+
+    def test_multiple_source_streams_are_rejected_before_encoding(self):
+        multi_stream = {**self.source_probe, "audio_stream_count": 2}
+        with (
+            patch("convert_audio_archive.probe_audio", return_value=multi_stream),
+            patch("convert_audio_archive._run") as run,
+        ):
+            with self.assertRaisesRegex(ValueError, "2 Audiospuren"):
+                convert_one(self.plan)
+        run.assert_not_called()
+        self.assertFalse(Path(self.plan["package_dir"]).exists())
 
     def test_directory_fsync_failure_rolls_back_installed_package(self):
         def fake_conversion(command, _timeout):

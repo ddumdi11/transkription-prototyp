@@ -118,7 +118,7 @@ def _run(command: list[str], timeout: float) -> subprocess.CompletedProcess[str]
 
 def probe_audio(path: Path, timeout: float) -> dict[str, Any]:
     result = _run([
-        "ffprobe", "-v", "error", "-select_streams", "a:0",
+        "ffprobe", "-v", "error", "-select_streams", "a",
         "-show_entries",
         "stream=codec_name,sample_rate,channels,channel_layout,duration:format=duration",
         "-of", "json", str(path),
@@ -126,6 +126,8 @@ def probe_audio(path: Path, timeout: float) -> dict[str, Any]:
     try:
         payload = json.loads(result.stdout)
         streams = payload["streams"]
+        if not isinstance(streams, list) or not streams:
+            raise ValueError("Audiospur fehlt")
         stream = streams[0]
         sample_rate = int(stream["sample_rate"])
         channels = int(stream["channels"])
@@ -148,6 +150,7 @@ def probe_audio(path: Path, timeout: float) -> dict[str, Any]:
     if sample_rate <= 0 or channels <= 0 or not isfinite(duration) or duration < 0:
         raise ValueError(f"Ungültige Audioeigenschaften für {path}")
     return {
+        "audio_stream_count": len(streams),
         "codec": codec,
         "sample_rate": sample_rate,
         "channels": channels,
@@ -172,6 +175,14 @@ def decoded_pcm_sha256(path: Path, timeout: float) -> str:
 def validate_media_match(
     source: dict[str, Any], archive: dict[str, Any], source_pcm: str, archive_pcm: str
 ) -> dict[str, Any]:
+    if source["audio_stream_count"] != 1:
+        raise ValueError(
+            f"WAV enthält {source['audio_stream_count']} Audiospuren; genau eine erforderlich"
+        )
+    if archive["audio_stream_count"] != 1:
+        raise ValueError(
+            f"FLAC enthält {archive['audio_stream_count']} Audiospuren; genau eine erforderlich"
+        )
     if archive["codec"] != "flac":
         raise ValueError(f"Archivcodec ist nicht FLAC: {archive['codec']}")
     if source["sample_rate"] != archive["sample_rate"]:
@@ -321,6 +332,11 @@ def convert_one(
         try:
             probe_timeout = operation_timeout(0.0, timeout_seconds)
             source_probe = probe_audio(source_audio, probe_timeout)
+            if source_probe["audio_stream_count"] != 1:
+                raise ValueError(
+                    f"WAV enthält {source_probe['audio_stream_count']} Audiospuren; "
+                    "genau eine erforderlich"
+                )
             timeout = operation_timeout(source_probe["duration"], timeout_seconds)
             _run([
                 "ffmpeg", "-v", "error", "-n", "-i", str(source_audio),
