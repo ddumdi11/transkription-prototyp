@@ -241,8 +241,10 @@ die Übergabe an das Z-System ein eigenes, geprüftes Ziel erhalten.
 
 Nach vollständig abgeschlossener Verarbeitung sollen große WAV-Originale
 verlustfrei als FLAC in einem getrennten Drive-Archiv gesichert werden. Dieser
-Schritt ist noch nicht implementiert und wird zunächst ohne Löschfunktion als
-Dry-Run entwickelt. Sicherheitsgrenzen, Prüfschritte und Ausbaustufen stehen in
+Der rein lesende Dry-Run ist als `plan_audio_archive.py` implementiert. Er plant
+eindeutige FLAC-Ziele, verändert aber weder SQLite-State noch Audio- oder
+Drive-Dateien und gibt keine WAV-Datei zur Löschung frei. Sicherheitsgrenzen,
+Prüfschritte und Ausbaustufen stehen in
 [`AUDIO_ARCHIVING_PLAN.md`](AUDIO_ARCHIVING_PLAN.md).
 
 ## Bestätigte Korrekturbeispiele vorbereiten
