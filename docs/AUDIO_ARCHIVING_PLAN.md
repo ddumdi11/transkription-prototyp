@@ -1,6 +1,7 @@
 # Geplanter Ausbau: verlustfreie Audioarchivierung
 
-**Status:** v0.1 und lokale Konvertierung v0.2 implementiert; Drive-Upload folgt
+**Status:** v0.1, lokale Konvertierung v0.2 und verifizierter Drive-Upload v0.3
+implementiert; automatische Bereinigung folgt nicht ohne eigene Freigabe
 
 Die WAV-Dateien der Live-Inbox belegen auf Google Drive zunehmend viel Platz.
 Nach vollständig abgeschlossener Verarbeitung sollen geeignete Originale daher
@@ -106,13 +107,53 @@ Auch ein erfolgreich geprüftes lokales Paket setzt `cleanup_ready` weiterhin
 auf `false`: Remote-Upload, Remote-Verifikation und Aufbewahrungsrichtlinie
 fehlen zu diesem Zeitpunkt noch.
 
+## Verifizierter Drive-Upload v0.3
+
+Das Archivziel muss ein eigener, bereits vorhandener Drive-Unterordner sein.
+Es wird ausschließlich über seine unveränderliche Drive-ID adressiert:
+
+```text
+AUDIOREC_ARCHIVE_TARGET=gdrive,root_folder_id=DRIVE_ORDNER_ID:
+```
+
+Ein normaler Aufruf prüft das lokale FLAC-Paket und zeigt nur den Uploadplan:
+
+```bash
+.venv/bin/python upload_audio_archive.py --drive-id DRIVE_ID
+```
+
+Erst `--confirm` legt unterhalb des festgelegten Zielordners genau einen
+plattformneutral benannten Paketordner an und überträgt dessen FLAC sowie
+`archive.json`:
+
+```bash
+.venv/bin/python upload_audio_archive.py \
+  --drive-id DRIVE_ID \
+  --confirm
+```
+
+Vor jedem Upload werden das lokale v0.2-Paket und seine Hashes erneut geprüft.
+Rclone liest FLAC und Manifest nur aus einer temporären Momentaufnahme, deren
+Größe und SHA256 zuvor nochmals mit dem Plan abgeglichen wurden; die
+Momentaufnahme wird bei Erfolg und Fehler vollständig entfernt.
+Vorhandene Remote-Dateien müssen in Größe und SHA256 exakt passen; abweichende,
+doppelte oder unerwartete Dateien brechen den Vorgang ab. Fehlende Dateien eines
+unterbrochenen Teiluploads werden mit rclones `--immutable` ergänzt. Nach dem
+Upload werden beide Remote-Dateien erneut aufgelistet und anhand von Größe,
+SHA256 und Remote-ID verifiziert.
+
+Der erfolgreiche Nachweis wird lokal und atomar als `upload-receipt.json` im
+Paket gespeichert. Er bindet Archivschlüssel, ursprüngliche Drive-ID,
+Archivziel-ID und die beiden Remote-Datei-IDs zusammen. Eine identische
+Wiederholung lädt nichts erneut hoch. WAV, Pipeline-Datenbank und Live-Inbox
+bleiben unverändert; `cleanup_ready` bleibt auch nach v0.3 `false`, weil noch
+keine Aufbewahrungs- und Löschrichtlinie freigegeben ist.
+
 ## Vorgeschlagene Ausbaustufen
 
 - **v0.1:** rein lesender Archivplan ohne Schema- oder Zustandsänderung
 - **v0.2:** lokale FLAC-Konvertierung mit technischer Verifikation
-- **v0.3:** idempotenter Upload in den Drive-Archivordner
+- **v0.3:** idempotenter Upload mit Remote-Hashprüfung und lokaler Quittung
 - **v0.4:** Aufbewahrungsfrist und ausdrücklich aktivierte Bereinigung
 
-Vor v0.3 muss der per Drive-ID eindeutig adressierte Zielordner festgelegt
-werden. Aufbewahrungsdauer und eine Löschrichtlinie werden erst für v0.4
-entschieden.
+Aufbewahrungsdauer und eine Löschrichtlinie werden erst für v0.4 entschieden.

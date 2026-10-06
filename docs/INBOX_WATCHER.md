@@ -250,7 +250,15 @@ Prüfschritte und Ausbaustufen stehen in
 Die lokale Ausbaustufe v0.2 wird getrennt und nur nach ausdrücklichem
 `--confirm` über `convert_audio_archive.py` gestartet. Sie erzeugt ein atomar
 installiertes FLAC-Paket und vergleicht den vollständig dekodierten PCM-Inhalt
-mit dem WAV. Upload und Löschung gehören ausdrücklich nicht zu diesem Schritt.
+mit dem WAV.
+
+Der anschließende Upload bleibt in v0.3 ebenfalls ein ausdrücklicher
+Einzelschritt über `upload_audio_archive.py --drive-id ID --confirm`. Das Ziel
+muss mit `AUDIOREC_ARCHIVE_TARGET` per `root_folder_id` fest an einen separaten
+Drive-Archivordner gebunden sein. FLAC und `archive.json` werden unveränderlich
+hochgeladen, anschließend über Remote-Größe, SHA256 und Drive-ID geprüft und
+lokal mit `upload-receipt.json` quittiert. Weder v0.2 noch v0.3 löscht eine
+lokale oder entfernte WAV-Datei; beide lassen `cleanup_ready` auf `false`.
 
 ## Bestätigte Korrekturbeispiele vorbereiten
 
