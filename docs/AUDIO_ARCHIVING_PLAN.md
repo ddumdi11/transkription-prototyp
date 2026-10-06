@@ -1,7 +1,8 @@
 # Geplanter Ausbau: verlustfreie Audioarchivierung
 
-**Status:** v0.1, lokale Konvertierung v0.2 und verifizierter Drive-Upload v0.3
-implementiert; automatische Bereinigung folgt nicht ohne eigene Freigabe
+**Status:** v0.1, lokale Konvertierung v0.2, verifizierter Drive-Upload v0.3
+und rein lesende Bereinigungsplanung v0.4 implementiert; eine ausführende
+Bereinigung folgt nicht ohne eigene Freigabe
 
 Die WAV-Dateien der Live-Inbox belegen auf Google Drive zunehmend viel Platz.
 Nach vollständig abgeschlossener Verarbeitung sollen geeignete Originale daher
@@ -149,11 +150,61 @@ Wiederholung lädt nichts erneut hoch. WAV, Pipeline-Datenbank und Live-Inbox
 bleiben unverändert; `cleanup_ready` bleibt auch nach v0.3 `false`, weil noch
 keine Aufbewahrungs- und Löschrichtlinie freigegeben ist.
 
+## Rein lesende Bereinigungsplanung v0.4
+
+`plan_audio_cleanup.py` verbindet die zuvor getrennten Nachweise, führt aber
+selbst niemals eine Bereinigung aus. Ohne konfigurierte Fristen und ohne
+Remote-Nachprüfung bleibt jeder Eintrag auf `HOLD`:
+
+```bash
+.venv/bin/python plan_audio_cleanup.py \
+  --drive-id DRIVE_ID \
+  --archive-target 'gdrive,root_folder_id=ARCHIV_ORDNER_ID:' \
+  --json
+```
+
+Lokale und entfernte Aufbewahrungsfristen sind absichtlich getrennt. Erst ein
+Aufruf mit ausdrücklich gesetzten Fristen und `--verify-remote` kann den reinen
+Policy-Status `ELIGIBLE` ergeben:
+
+```bash
+.venv/bin/python plan_audio_cleanup.py \
+  --drive-id DRIVE_ID \
+  --archive-target 'gdrive,root_folder_id=ARCHIV_ORDNER_ID:' \
+  --source 'gdrive,root_folder_id=LIVE_INBOX_ID:' \
+  --local-retention-days TAGE \
+  --remote-retention-days TAGE \
+  --verify-remote \
+  --json
+```
+
+Der Planer prüft dabei erneut:
+
+- Größe und Hash der lokalen Quell-WAV, sofern sie noch vorhanden ist,
+- das lokale v0.2-FLAC-Paket und dessen Manifest,
+- die kanonische `upload-receipt.json`,
+- beide Remote-Archivdateien samt SHA256 und Drive-ID,
+- die Quell-WAV in der ID-fixierten Live-Inbox sowie
+- QA-Status und Ablauf der Frist seit `verified_at` der Uploadquittung.
+
+Das Fehlen einer lokalen WAV blockiert nur die lokale Seite. Dadurch kann eine
+später ablaufende Remote-Frist weiterhin korrekt geplant werden, nachdem eine
+frühere lokale Bereinigung stattgefunden hat. Offene oder bestätigte
+QA-Auffälligkeiten blockieren beide Seiten.
+
+`ELIGIBLE` bedeutet ausschließlich, dass die angegebenen Richtlinien und
+Nachweise zum Planungszeitpunkt erfüllt wären. Auch dann bleiben
+`cleanup_ready: false` und `action: null`; v0.4 besitzt weder einen Löschschalter
+noch Schreibzugriffe auf SQLite, Audio oder Drive. `--as-of` erlaubt
+reproduzierbare UTC-Stichtage für Tests und Audits.
+
 ## Vorgeschlagene Ausbaustufen
 
 - **v0.1:** rein lesender Archivplan ohne Schema- oder Zustandsänderung
 - **v0.2:** lokale FLAC-Konvertierung mit technischer Verifikation
 - **v0.3:** idempotenter Upload mit Remote-Hashprüfung und lokaler Quittung
-- **v0.4:** Aufbewahrungsfrist und ausdrücklich aktivierte Bereinigung
+- **v0.4:** rein lesende Evidenz- und Aufbewahrungsplanung
+- **später:** getrennt freizugebende lokale und entfernte Bereinigung
 
-Aufbewahrungsdauer und eine Löschrichtlinie werden erst für v0.4 entschieden.
+Aufbewahrungsdauer und ausführende Löschrichtlinien sind weiterhin nicht
+festgelegt.
