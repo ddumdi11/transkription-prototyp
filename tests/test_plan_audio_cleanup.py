@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from plan_audio_cleanup import (
     plan_cleanup_one,
     source_remote_index,
     summarize,
+    resolve_retention_days,
     validate_retention_days,
     verify_receipt_files,
 )
@@ -183,6 +185,18 @@ class AudioCleanupPlanTest(unittest.TestCase):
         for value in (-1, float("nan"), float("inf")):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_retention_days(value, "test")
+
+    def test_retention_uses_cli_override_then_optional_environment(self):
+        with patch.dict(os.environ, {"TEST_RETENTION": "7"}):
+            self.assertEqual(
+                resolve_retention_days(None, "TEST_RETENTION", "Testfrist"), 7
+            )
+            self.assertEqual(
+                resolve_retention_days(3, "TEST_RETENTION", "Testfrist"), 3
+            )
+        with patch.dict(os.environ, {"TEST_RETENTION": "kein-tag"}):
+            with self.assertRaisesRegex(ValueError, "keine Zahl"):
+                resolve_retention_days(None, "TEST_RETENTION", "Testfrist")
 
     def test_source_listing_rejects_duplicate_drive_ids(self):
         result = subprocess.CompletedProcess(

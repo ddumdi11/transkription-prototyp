@@ -42,6 +42,8 @@ from upload_audio_archive import (
 
 
 DEFAULT_SOURCE = os.environ.get("AUDIOREC_SOURCE")
+LOCAL_RETENTION_ENV = "AUDIOREC_LOCAL_RETENTION_DAYS"
+REMOTE_RETENTION_ENV = "AUDIOREC_REMOTE_RETENTION_DAYS"
 
 
 def parse_utc_timestamp(value: object, label: str) -> datetime:
@@ -63,6 +65,22 @@ def validate_retention_days(value: float | None, label: str) -> float | None:
     if not isfinite(value) or value < 0:
         raise ValueError(f"{label} muss eine nichtnegative endliche Zahl sein")
     return value
+
+
+def resolve_retention_days(
+    cli_value: float | None, env_name: str, label: str
+) -> float | None:
+    """Resolve a CLI override or an optional environment policy value."""
+    if cli_value is not None:
+        return validate_retention_days(cli_value, label)
+    raw = os.environ.get(env_name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{label} in {env_name} ist keine Zahl") from exc
+    return validate_retention_days(value, f"{label} in {env_name}")
 
 
 def source_remote_index(source: str) -> dict[str, dict[str, Any]]:
@@ -308,9 +326,13 @@ def plan_cleanup_one(
     local_blockers = list(dict.fromkeys(local_blockers))
     remote_blockers = list(dict.fromkeys(remote_blockers))
     return {
+        "archive_key": conversion_plan["archive_key"],
         "drive_id": item["drive_id"],
         "source_path": item["source_path"],
         "local_audio": item["local_audio"],
+        "source_size": item["source_size"],
+        "source_hash_type": item["source_hash_type"],
+        "source_hash": item["source_hash"],
         "archive_package": str(package_dir),
         "upload_receipt": str(receipt_path),
         "quality_status": item["quality"]["status"],
@@ -361,11 +383,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logger = setup_cli_logging()
     try:
-        local_days = validate_retention_days(
-            args.local_retention_days, "Lokale Aufbewahrungsfrist"
+        local_days = resolve_retention_days(
+            args.local_retention_days,
+            LOCAL_RETENTION_ENV,
+            "Lokale Aufbewahrungsfrist",
         )
-        remote_days = validate_retention_days(
-            args.remote_retention_days, "Remote-Aufbewahrungsfrist"
+        remote_days = resolve_retention_days(
+            args.remote_retention_days,
+            REMOTE_RETENTION_ENV,
+            "Remote-Aufbewahrungsfrist",
         )
         as_of = (
             parse_utc_timestamp(args.as_of, "--as-of")

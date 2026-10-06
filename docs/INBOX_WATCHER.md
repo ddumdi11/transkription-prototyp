@@ -268,6 +268,15 @@ keine Aktion: Der Planer kennt keinen Löschparameter, setzt
 `cleanup_ready: false` und gibt `action: null` aus. Details und Beispiele stehen
 in [`AUDIO_ARCHIVING_PLAN.md`](AUDIO_ARCHIVING_PLAN.md).
 
+Die bestätigte Richtlinie beträgt 7 Tage für die lokale Original-WAV und 30
+Tage für die Original-WAV auf Drive. Sie wird über
+`AUDIOREC_LOCAL_RETENTION_DAYS` und `AUDIOREC_REMOTE_RETENTION_DAYS`
+konfiguriert. v0.5 kann nach einer erneuten Live-Prüfung genau eine lokale WAV
+mit `cleanup_local_audio.py --drive-id ID --confirm-local-cleanup` entfernen.
+Der normale Aufruf bleibt ein Dry-Run. Jede tatsächliche Entfernung wird
+absturzsicher in `local-cleanup.json` quittiert; eine Drive-WAV wird dadurch
+nicht gelöscht.
+
 ## Bestätigte Korrekturbeispiele vorbereiten
 
 `create_correction_sample.py` verbindet eine lokale Aufnahme ausdrücklich mit

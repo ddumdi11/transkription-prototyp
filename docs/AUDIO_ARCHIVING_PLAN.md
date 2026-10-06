@@ -1,8 +1,8 @@
 # Geplanter Ausbau: verlustfreie Audioarchivierung
 
-**Status:** v0.1, lokale Konvertierung v0.2, verifizierter Drive-Upload v0.3
-und rein lesende Bereinigungsplanung v0.4 implementiert; eine ausführende
-Bereinigung folgt nicht ohne eigene Freigabe
+**Status:** v0.1, lokale Konvertierung v0.2, verifizierter Drive-Upload v0.3,
+rein lesende Bereinigungsplanung v0.4 und ausdrücklich bestätigte lokale
+Bereinigung v0.5 implementiert
 
 Die WAV-Dateien der Live-Inbox belegen auf Google Drive zunehmend viel Platz.
 Nach vollständig abgeschlossener Verarbeitung sollen geeignete Originale daher
@@ -192,11 +192,52 @@ später ablaufende Remote-Frist weiterhin korrekt geplant werden, nachdem eine
 frühere lokale Bereinigung stattgefunden hat. Offene oder bestätigte
 QA-Auffälligkeiten blockieren beide Seiten.
 
+Ohne CLI-Überschreibung liest der Planer die Fristen aus
+`AUDIOREC_LOCAL_RETENTION_DAYS` und `AUDIOREC_REMOTE_RETENTION_DAYS`. Die
+aktuell bestätigte Richtlinie lautet:
+
+- lokale Original-WAV: mindestens **7 Tage** nach dem verifizierten FLAC-Upload,
+- Original-WAV in der Live-Inbox: mindestens **30 Tage** nach diesem Zeitpunkt.
+
 `ELIGIBLE` bedeutet ausschließlich, dass die angegebenen Richtlinien und
 Nachweise zum Planungszeitpunkt erfüllt wären. Auch dann bleiben
 `cleanup_ready: false` und `action: null`; v0.4 besitzt weder einen Löschschalter
 noch Schreibzugriffe auf SQLite, Audio oder Drive. `--as-of` erlaubt
 reproduzierbare UTC-Stichtage für Tests und Audits.
+
+## Ausdrücklich bestätigte lokale Bereinigung v0.5
+
+`cleanup_local_audio.py` bearbeitet genau eine Drive-ID. Der normale Aufruf ist
+ein Dry-Run und führt bereits die aktuellen Drive-Nachprüfungen aus, verändert
+aber keine Datei. Standardmäßig liest er Ziel-IDs und Fristen aus der lokalen
+`.inbox-watcher/pipeline.env`; `--env-file` kann auf eine andere Konfiguration
+zeigen:
+
+```bash
+.venv/bin/python cleanup_local_audio.py --drive-id DRIVE_ID --json
+```
+
+Nur der eigene Schalter `--confirm-local-cleanup` darf eine lokale WAV nach
+Ablauf der 7-Tage-Frist entfernen:
+
+```bash
+.venv/bin/python cleanup_local_audio.py \
+  --drive-id DRIVE_ID \
+  --confirm-local-cleanup
+```
+
+Unmittelbar vor der Aktion werden unter einer Paketsperre der Read-only-State,
+das lokale FLAC-Paket, die Uploadquittung, FLAC und Manifest auf Drive sowie die
+Original-WAV in der ID-fixierten Live-Inbox erneut geprüft. Ein künstlicher
+Stichtag über `--as-of` ist bei einer echten Bereinigung verboten. Die
+entfernte lokale WAV wird in `local-cleanup.json` mit Drive-ID, Quellhash,
+Richtlinie und Zeitpunkten quittiert. Ein persistenter `PREPARED`-Zustand und
+eine verifizierte Zwischendatei machen den Vorgang nach Abbruch oder Stromausfall
+wiederaufnehmbar; identische Wiederholungen sind idempotent.
+
+v0.5 löscht weder die WAV in der Live-Inbox noch das FLAC-Archiv. Die
+30-Tage-Frist bleibt vorerst reine Planung und verlangt vor einer späteren
+Drive-Bereinigung eine weitere, getrennte Freigabe.
 
 ## Vorgeschlagene Ausbaustufen
 
@@ -204,7 +245,11 @@ reproduzierbare UTC-Stichtage für Tests und Audits.
 - **v0.2:** lokale FLAC-Konvertierung mit technischer Verifikation
 - **v0.3:** idempotenter Upload mit Remote-Hashprüfung und lokaler Quittung
 - **v0.4:** rein lesende Evidenz- und Aufbewahrungsplanung
-- **später:** getrennt freizugebende lokale und entfernte Bereinigung
+- **v0.5:** ausdrücklich bestätigte, quittierte lokale WAV-Bereinigung
+- **später:** getrennt freizugebende entfernte WAV-Bereinigung
+- **später:** nach etwa 90 Tagen optionale kleine Hörkopie als MP3 oder Opus;
+  das verlustfreie FLAC bleibt kanonisch, solange keine zweite verifizierte
+  Archivkopie auf externem Speicher oder in einem weiteren Cloud-Ziel besteht
 
-Aufbewahrungsdauer und ausführende Löschrichtlinien sind weiterhin nicht
-festgelegt.
+Ob langfristig ein externer Speicher oder mehr Drive-Kapazität verwendet wird,
+bleibt eine bewusste Betriebsentscheidung außerhalb der automatischen Pipeline.
