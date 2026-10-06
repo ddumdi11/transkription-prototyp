@@ -178,6 +178,20 @@ class UploadAudioArchiveTest(unittest.TestCase):
         inspect.assert_not_called()
         self.assertEqual(list(self.root.glob(".archive-upload.*.tmp")), [])
 
+    def test_divergent_receipt_is_rejected_before_remote_access(self):
+        receipt = self.package / "upload-receipt.json"
+        receipt.write_text(json.dumps({"target_root_id": "other-target"}), encoding="utf-8")
+        with (
+            patch(
+                "upload_audio_archive.existing_package_matches", return_value=True
+            ),
+            patch("upload_audio_archive.inspect_remote_package") as inspect,
+            self.assertRaisesRegex(FileExistsError, "Quittung"),
+        ):
+            upload_one(self.plan)
+        inspect.assert_not_called()
+        self.assertEqual(list(self.root.glob(".archive-upload.*.tmp")), [])
+
     def test_remote_verification_rejects_missing_and_extra_files(self):
         remote = self.remote_rows()
         expected = self.plan["files"]

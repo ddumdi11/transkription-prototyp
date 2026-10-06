@@ -115,7 +115,7 @@ def run_rclone(command: list[str], timeout: float) -> subprocess.CompletedProces
 def parse_listing(result: subprocess.CompletedProcess[str], context: str) -> list[dict]:
     try:
         rows = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
+    except (TypeError, json.JSONDecodeError) as exc:
         raise ValueError(f"rclone-Ausgabe ist für {context} kein JSON") from exc
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise ValueError(f"rclone-Ausgabe ist für {context} keine Objektliste")
@@ -238,7 +238,11 @@ def normalized_remote_hashes(row: dict[str, Any]) -> dict[str, str]:
 def verify_remote_file(
     name: str, expected: dict[str, Any], remote: dict[str, Any]
 ) -> dict[str, Any]:
-    if int(remote.get("Size", -1)) != expected["size"]:
+    try:
+        remote_size = int(remote.get("Size", -1))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Remote-Größe ist ungültig: {name}") from exc
+    if remote_size != expected["size"]:
         raise ValueError(f"Remote-Größe weicht ab: {name}")
     if normalized_remote_hashes(remote).get("sha256") != expected["sha256"]:
         raise ValueError(f"Remote-SHA256 weicht ab: {name}")
@@ -302,6 +306,37 @@ def receipt_matches(
         and existing.get("cleanup_ready") is False
         and isinstance(existing.get("verified_at"), str)
     )
+
+
+def validate_existing_receipt_binding(
+    existing: object | None, plan: dict[str, Any], path: Path
+) -> None:
+    if existing is None:
+        return
+    if not isinstance(existing, dict):
+        raise FileExistsError(f"Upload-Quittung ist kein JSON-Objekt: {path}")
+    expected = {
+        "schema_version": 1,
+        "receipt_type": "verified_drive_flac_archive",
+        "archive_key": plan["archive_key"],
+        "source_drive_id": plan["drive_id"],
+        "target_root_id": plan["target_root_id"],
+        "remote_package": plan["package_name"],
+        "source_preserved": True,
+        "cleanup_ready": False,
+    }
+    mismatched = [
+        field for field, value in expected.items() if existing.get(field) != value
+    ]
+    if mismatched:
+        raise FileExistsError(
+            f"Upload-Quittung gehört nicht zu diesem Plan ({', '.join(mismatched)}): "
+            f"{path}"
+        )
+    if not isinstance(existing.get("verified_at"), str) or not isinstance(
+        existing.get("files"), list
+    ):
+        raise FileExistsError(f"Upload-Quittung ist unvollständig: {path}")
 
 
 def read_existing_receipt(path: Path) -> object | None:
@@ -444,11 +479,7 @@ def _upload_verified_snapshot(
 ) -> tuple[Path, list[str], bool]:
     """Perform remote changes only from already verified immutable snapshots."""
     existing_receipt = read_existing_receipt(receipt_path)
-    if isinstance(existing_receipt, dict):
-        if existing_receipt.get("target_root_id") != plan["target_root_id"]:
-            raise FileExistsError(
-                "Archivpaket besitzt bereits eine Quittung für ein anderes Drive-Ziel"
-            )
+    validate_existing_receipt_binding(existing_receipt, plan, receipt_path)
 
     remote = inspect_remote_package(plan["target"], plan["package_name"])
     if remote is None:
