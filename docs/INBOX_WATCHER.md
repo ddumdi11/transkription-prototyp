@@ -260,6 +260,14 @@ hochgeladen, anschließend über Remote-Größe, SHA256 und Drive-ID geprüft un
 lokal mit `upload-receipt.json` quittiert. Weder v0.2 noch v0.3 löscht eine
 lokale oder entfernte WAV-Datei; beide lassen `cleanup_ready` auf `false`.
 
+Die Ausbaustufe v0.4 ergänzt mit `plan_audio_cleanup.py` ausschließlich einen
+rein lesenden Evidenz- und Fristenplan. Lokale und entfernte Aufbewahrungsdauer
+werden getrennt angegeben; ohne Frist oder aktuelle Remote-Prüfung bleibt der
+jeweilige Status `HOLD`. Selbst ein vollständig belegtes `ELIGIBLE` erzeugt
+keine Aktion: Der Planer kennt keinen Löschparameter, setzt
+`cleanup_ready: false` und gibt `action: null` aus. Details und Beispiele stehen
+in [`AUDIO_ARCHIVING_PLAN.md`](AUDIO_ARCHIVING_PLAN.md).
+
 ## Bestätigte Korrekturbeispiele vorbereiten
 
 `create_correction_sample.py` verbindet eine lokale Aufnahme ausdrücklich mit
