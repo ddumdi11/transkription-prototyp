@@ -41,6 +41,7 @@ from upload_audio_archive import validate_remote_root
 RECEIPT_NAME = "local-cleanup.json"
 PENDING_SUFFIX = ".local-wav-removal.pending"
 DEFAULT_ENV_FILE = Path(".inbox-watcher/pipeline.env")
+MINIMUM_LOCAL_RETENTION_DAYS = 7.0
 RESUMABLE_LOCAL_BLOCKERS = {
     "archive_local_audio_path_missing",
     "archive_local_audio_missing",
@@ -328,6 +329,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         if local_days is None:
             raise ValueError("Lokale Aufbewahrungsfrist ist nicht konfiguriert")
+        if (
+            args.confirm_local_cleanup
+            and local_days < MINIMUM_LOCAL_RETENTION_DAYS
+        ):
+            raise ValueError(
+                "Eine bestätigte lokale Bereinigung erfordert mindestens "
+                f"{MINIMUM_LOCAL_RETENTION_DAYS:g} Tage Aufbewahrung"
+            )
         if args.confirm_local_cleanup and args.as_of:
             raise ValueError("--as-of ist bei einer echten Bereinigung nicht erlaubt")
         as_of = parse_utc_timestamp(args.as_of, "--as-of") if args.as_of else utc_now()

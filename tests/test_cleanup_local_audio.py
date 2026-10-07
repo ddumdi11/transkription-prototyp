@@ -4,12 +4,14 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from cleanup_local_audio import (
     RECEIPT_NAME,
     pending_path_for,
     read_cleanup_receipt,
     remove_local_wav,
+    main,
 )
 
 
@@ -81,6 +83,16 @@ class LocalAudioCleanupTest(unittest.TestCase):
             remove_local_wav(self.plan, 7, 30, now=self.now)
         self.assertTrue(self.source.exists())
         self.assertFalse((self.package / RECEIPT_NAME).exists())
+
+    def test_confirmed_cleanup_rejects_retention_below_seven_before_planning(self):
+        with patch("cleanup_local_audio.build_local_cleanup_plan") as build:
+            result = main([
+                "--drive-id", "drive-id",
+                "--local-retention-days", "6.999",
+                "--confirm-local-cleanup",
+            ])
+        self.assertEqual(result, 1)
+        build.assert_not_called()
 
     def test_prepared_operation_resumes_from_verified_pending_file(self):
         receipt_path, _removed = remove_local_wav(
