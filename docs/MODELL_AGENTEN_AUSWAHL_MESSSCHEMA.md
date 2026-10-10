@@ -255,24 +255,46 @@ bis sie zuverlässig aus der jeweiligen Anwendung abgelesen wurden.
 
 ## Abstimmung mit dem Z-System
 
-Die nächste Schnittstellenabstimmung erfolgt erst nach einem aktualisierten
-Atlas-Export. Dabei sind zu klären:
+Die Abstimmung vom 9. Oktober 2026 hat die vorläufige Zuordnung geklärt:
 
-1. stabile `project_id` für Blitzprojekte, Gedankenfäden und den geplanten
-   Modell-/Agentenauswahl-Verbund,
-2. Ablageort und Besitzer des append-only Messjournals,
-3. optionaler Exporttyp für zusammengefasste Empfehlungen,
-4. Trennung von Rohmessungen, subjektiven Bewertungen und abgeleiteten Regeln,
-5. Umgang mit archivierten oder umbenannten Projekten.
+- `modell-agenten-einsatz` ist die stabile Projekt-ID für das
+  projektübergreifende Vorhaben „Modell- und Agenteneinsatz“. Das Z-System ist
+  dessen Eigentümer; die Transkriptionspipeline kann später Beobachtungen
+  liefern.
+- Blitzprojekte besitzt noch keine stabile Projekt-ID und ist deshalb noch kein
+  Routing-Ziel.
+- Gedankenfäden bleibt vorerst ein Chat beziehungsweise Untervorhaben unter
+  Blitzprojekte und erhält noch keine eigene Projekt-ID. Bis dahin kann es nur
+  über Tags, Notizen oder eine stabile Aufgabenreferenz bezeichnet werden.
+- Vorhabenübergreifende Verbindungen entstehen in Katalog v1 über die
+  N:M-Zuordnung Chat↔Vorhaben, nicht über Projekt-Relationen.
 
-Die Transkriptionspipeline kann später Beobachtungen liefern, bleibt aber nicht
-Eigentümerin dieser projektübergreifenden Entscheidungsdaten.
+Der zugehörige Atlas-Katalog wurde direkt aus
+`AudioRec Project Outbox/catalog/atlas-project-catalog.v1.json` validiert:
+
+```text
+exported_at: 2026-10-09T18:56:18Z
+projects: 45
+catalog_hash: sha256:e4fb06f8de669934eae1f3d2652dc192659abf20a927a2b23b8ac4a300e0a9ea
+```
+
+Die Outbox ist bereits der Drive-synchronisierte Übergabekanal. Ein neuer
+Katalog wird nicht noch einmal separat übergeben: Sein neuer `catalog_hash` ist
+das Änderungssignal, anhand dessen die empfangende Seite genau die aus der
+Outbox synchronisierte oder abgerufene Datei validiert. Der Abruf geschieht auf
+Pipeline-Seite derzeit noch ausdrücklich; eine automatische rclone-Anbindung
+für den Katalog ist noch nicht implementiert.
+
+Noch offen sind Ablageort und Besitzer des append-only Messjournals, ein
+optionaler Exporttyp für zusammengefasste Empfehlungen sowie der Umgang mit
+archivierten oder umbenannten Projekten.
 
 ## Nächste Schritte
 
-1. Aktualisierten Atlas-Katalog exportieren und IDs abgleichen.
-2. Drei bis fünf reale Einsätze manuell nach diesem Schema erfassen.
-3. Prüfen, welche Felder tatsächlich zuverlässig verfügbar sind.
+1. Drei bis fünf reale Einsätze für `modell-agenten-einsatz` manuell nach
+   diesem Schema erfassen.
+2. Prüfen, welche Felder tatsächlich zuverlässig verfügbar sind.
+3. Ablage und Eigentümer des Messjournals mit dem Z-System festlegen.
 4. Erst danach ein formales JSON-Schema und einen Validator festlegen.
 5. Automatisierung nur für stabile, vom jeweiligen Dienst vorgesehene
    Messschnittstellen entwickeln.
