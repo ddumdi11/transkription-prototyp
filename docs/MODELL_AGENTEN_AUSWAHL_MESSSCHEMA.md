@@ -1,7 +1,7 @@
 # Messschema für Modell- und Agenteneinsätze
 
-**Status:** Entscheidungs- und Schnittstellenentwurf v0.1  
-**Stand:** 8. Oktober 2026  
+**Status:** Entscheidungs- und Schnittstellenentwurf v0.1
+**Stand:** 13. Oktober 2026
 **Ursprung:** Auswertung der Aufnahmen #792 und #795
 
 ## Ziel
@@ -62,7 +62,7 @@ eine Zeile ergänzt werden kann.
   "record_type": "model_agent_run",
   "run_id": "018f-example-uuid",
   "observed_at": "2026-10-08T10:30:00Z",
-  "project_id": "gedankenfaeden",
+  "project_id": "modell-agenten-einsatz",
   "task": {
     "task_ref": "optional-stable-reference",
     "task_class": "analysis",

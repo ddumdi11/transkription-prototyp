@@ -505,3 +505,8 @@ Das maschinenlesbare Lieferschema liegt unter
 `schemas/z-system-transcript-delivery.schema.v1.json`. Dieser Schritt lädt
 noch nichts nach Drive und ändert weder den Pipeline-State noch die
 kanonischen Transkripte.
+
+Die erste produktive Lieferung, ihr erfolgreicher Atlas-Import und die danach
+abgestimmten Regeln für plattformneutrale IDs und Importquittungen sind in
+[`UEBERGABE_Z_SYSTEM_ERSTE_LIEFERUNG_2026-09-25.md`](UEBERGABE_Z_SYSTEM_ERSTE_LIEFERUNG_2026-09-25.md)
+dokumentiert.
