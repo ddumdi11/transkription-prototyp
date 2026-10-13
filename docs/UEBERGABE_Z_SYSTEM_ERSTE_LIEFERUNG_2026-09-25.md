@@ -36,9 +36,10 @@ gebildet:
 ```
 
 Der Lieferexporter übernimmt diesen `manifest_key` unverändert als
-`delivery_id`. Der Hashanteil sorgt dafür, dass zwei inhaltlich verschiedene
-Routingentscheidungen derselben Sitzung nicht dieselbe Lieferidentität
-erhalten.
+`delivery_id`. Der auf 16 Hexzeichen verkürzte Hashanteil macht eine identische
+Lieferidentität für zwei inhaltlich verschiedene Routingentscheidungen derselben
+Sitzung sehr unwahrscheinlich, schließt eine Kollision mathematisch aber nicht
+aus.
 
 Der Doppelpunkt ist in JSON und in einer logischen Kennung unproblematisch,
 aber unter Windows in Datei- und Verzeichnisnamen nicht zulässig. Deshalb
@@ -120,10 +121,12 @@ innerhalb des Z-System-Repositories. Das zusätzliche Feld
 `storage_root: "z-system-repo"` benennt die Ablagewurzel. Absolute
 Windows-Pfade werden nicht mehr übertragen.
 
-Die erste Quittung bleibt bewusst in ihrem historischen Format. Der bestätigte
-idempotente Importer schreibt bei einer Wiederholung derselben Lieferung weder
-die bestehende Quittung noch Datenbank, Assets oder Zuordnungen neu. Ein
-besonderer Weg zur Neuausstellung dieser ersten Quittung ist nicht erforderlich.
+Die erste Quittung bleibt zunächst in ihrem historischen Format. Nach der
+vereinbarten Idempotenzsemantik soll der Importer bei einer Wiederholung
+derselben Lieferung weder die bestehende Quittung noch Datenbank, Assets oder
+Zuordnungen neu schreiben. Der noch ausstehende Wiederholungstest muss dieses
+Verhalten praktisch bestätigen. Erst danach steht fest, dass kein besonderer
+Weg zur Neuausstellung dieser ersten Quittung erforderlich ist.
 
 ## Nächster gemeinsamer Test
 

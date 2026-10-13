@@ -101,6 +101,7 @@ eine Zeile ergänzt werden kann.
     "accepted": true,
     "quality_rating": 4,
     "correction_rounds": 2,
+    "own_work_minutes": null,
     "correction_minutes": null,
     "result_ref": null
   },
@@ -186,6 +187,27 @@ Jeder Zahlenwert benötigt eine Herkunft:
 UI-Prozentwerte sind grob und dürfen nicht wie exakte Tokenzahlen behandelt
 werden. Eine Verschiebung des angezeigten Rücksetzdatums ist ein beobachtbares
 Ereignis, aber kein Beweis für die interne Berechnungsregel eines Anbieters.
+
+### Zeitfelder und Einheiten
+
+- `execution.wall_seconds` ist die verstrichene Lauf- beziehungsweise Wartezeit
+  in Sekunden vom Absenden eines Laufs bis zu seinem Ergebnis. Nachträgliche
+  Prüfung und Korrektur durch den Nutzer gehören nicht in diesen Wert.
+- `outcome.own_work_minutes` ist die aktive eigene Arbeitszeit in Minuten für
+  Vorbereitung, Steuerung und Prüfung, jedoch ohne die gesondert erfasste
+  Korrekturarbeit.
+- `outcome.correction_minutes` ist die aktive eigene Arbeitszeit in Minuten,
+  die ausschließlich für Korrektur oder Neuerstellung des Ergebnisses anfiel.
+
+Kann eine interaktive Ausführung Laufzeit und eigene Arbeit nicht zuverlässig
+trennen, bleiben die betroffenen Felder `null`, statt dieselbe Zeit doppelt zu
+zählen. Für die Leitgröße werden bekannte Werte auf Minuten normiert:
+
+```text
+Gesamtaufwand in Minuten = wall_seconds / 60
+                         + own_work_minutes
+                         + correction_minutes
+```
 
 ## Unterbrechungen und Wiederaufnahme
 
