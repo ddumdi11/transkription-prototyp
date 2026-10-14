@@ -209,6 +209,16 @@ Gesamtaufwand in Minuten = wall_seconds / 60
                          + correction_minutes
 ```
 
+Fehlt einer dieser drei Werte, bleibt auch der abgeleitete Gesamtaufwand
+`null`; unbekannte Anteile werden weder als `0` behandelt noch hochgerechnet.
+Ein solcher unvollständiger Lauf wird aus Kennzahlen und Empfehlungen
+ausgeschlossen, die den Gesamtaufwand oder gerade die fehlende Komponente
+benötigen. Er zählt deshalb auch nicht zu den mindestens drei vergleichbaren
+Läufen, auf denen eine entsprechende Tendenz beruhen soll. Für andere
+Kennzahlen darf der Lauf weiterhin verwendet werden, wenn deren sämtliche
+Eingangswerte bekannt sind. Der Anteil unbekannter Messwerte wird dabei
+ausdrücklich mitberichtet.
+
 ## Unterbrechungen und Wiederaufnahme
 
 Für unterbrochene Läufe ersetzt `interruption: null` ein Objekt:
