@@ -634,3 +634,12 @@ python transcribe.py input --prompt "Fachbegriffe: Diktiergerät, Claude, Claude
 ```
 
 Viel Spaß beim Diktieren und Transkribieren!
+
+---
+
+## Projektübergreifender Entwurf
+
+Das zunächst manuelle, datensparsame Messschema zur vergleichbaren Auswahl von
+Modellen und Agenten ist in
+[`docs/MODELL_AGENTEN_AUSWAHL_MESSSCHEMA.md`](docs/MODELL_AGENTEN_AUSWAHL_MESSSCHEMA.md)
+dokumentiert. Es ist noch nicht produktiv an die Pipeline oder Atlas gekoppelt.

@@ -310,6 +310,15 @@ Das maschinenlesbare Vertragsschema liegt unter
 `schemas/atlas-project-catalog.schema.v1.json`. Der Befehl verändert weder den
 Katalog noch Pipeline-Status oder Drive.
 
+Der produktive Katalog liegt im Drive-synchronisierten Übergabekanal unter
+`AudioRec Project Outbox/catalog/atlas-project-catalog.v1.json`. Diese Outbox
+ist bereits die Übergabe: Atlas schreibt eine geänderte Fassung dorthin und
+meldet den neuen `catalog_hash`. Die Pipeline-Werkzeuge verwenden derzeit eine
+lokal synchronisierte oder ausdrücklich abgerufene Kopie dieser Datei, die mit
+`--catalog` übergeben und vor der Verwendung verifiziert wird. Ein automatischer
+rclone-Abruf durch die Pipeline ist noch nicht implementiert; eine davon
+abweichende manuelle Übergabedatei ist jedoch nicht vorgesehen.
+
 `route_transcripts.py` plant die projektbezogene Verteilung bereits erfolgreich
 veröffentlichter Transkripte. Das kanonische Transkript in `AudioRec Transcripts`
 bleibt unverändert. Der Dry-Run kopiert keine Datei und ändert nichts auf Drive.
@@ -496,3 +505,8 @@ Das maschinenlesbare Lieferschema liegt unter
 `schemas/z-system-transcript-delivery.schema.v1.json`. Dieser Schritt lädt
 noch nichts nach Drive und ändert weder den Pipeline-State noch die
 kanonischen Transkripte.
+
+Die erste produktive Lieferung, ihr erfolgreicher Atlas-Import und die danach
+abgestimmten Regeln für plattformneutrale IDs und Importquittungen sind in
+[`UEBERGABE_Z_SYSTEM_ERSTE_LIEFERUNG_2026-09-25.md`](UEBERGABE_Z_SYSTEM_ERSTE_LIEFERUNG_2026-09-25.md)
+dokumentiert.
