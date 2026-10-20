@@ -11,9 +11,7 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
-from typing import Any
-
-from dotenv import load_dotenv
+from typing import Any, Mapping
 
 from convert_audio_archive import (
     DEFAULT_OUTPUT,
@@ -26,7 +24,9 @@ from plan_audio_archive import (
     DEFAULT_STATE,
     build_plan,
     open_readonly_state,
+    read_pipeline_config,
     resolve_archive_target,
+    resolve_config_value,
     setup_cli_logging,
 )
 from upload_audio_archive import (
@@ -70,12 +70,19 @@ def validate_retention_days(value: float | None, label: str) -> float | None:
 
 
 def resolve_retention_days(
-    cli_value: float | None, env_name: str, label: str
+    cli_value: float | None,
+    env_name: str,
+    label: str,
+    config: Mapping[str, str] | None = None,
 ) -> float | None:
     """Resolve a CLI override or an optional environment policy value."""
     if cli_value is not None:
         return validate_retention_days(cli_value, label)
-    raw = os.environ.get(env_name)
+    raw = (
+        os.environ.get(env_name)
+        if config is None
+        else resolve_config_value(env_name, config)
+    )
     if raw is None or not raw.strip():
         return None
     try:
@@ -386,20 +393,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logger = setup_cli_logging()
     try:
-        load_dotenv(args.env_file, override=False)
+        pipeline_config = read_pipeline_config(args.env_file)
         archive_target_value = resolve_archive_target(
-            args.archive_target, args.env_file
+            args.archive_target, args.env_file, pipeline_config
         )
-        source = args.source or os.environ.get("AUDIOREC_SOURCE")
+        source = (
+            args.source
+            if args.source is not None
+            else resolve_config_value("AUDIOREC_SOURCE", pipeline_config)
+        )
         local_days = resolve_retention_days(
             args.local_retention_days,
             LOCAL_RETENTION_ENV,
             "Lokale Aufbewahrungsfrist",
+            pipeline_config,
         )
         remote_days = resolve_retention_days(
             args.remote_retention_days,
             REMOTE_RETENTION_ENV,
             "Remote-Aufbewahrungsfrist",
+            pipeline_config,
         )
         as_of = (
             parse_utc_timestamp(args.as_of, "--as-of")

@@ -198,6 +198,14 @@ class AudioCleanupPlanTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "keine Zahl"):
                 resolve_retention_days(None, "TEST_RETENTION", "Testfrist")
 
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                resolve_retention_days(
+                    None, "TEST_RETENTION", "Testfrist", {"TEST_RETENTION": "90"}
+                ),
+                90,
+            )
+
     def test_source_listing_rejects_duplicate_drive_ids(self):
         result = subprocess.CompletedProcess(
             [], 0,

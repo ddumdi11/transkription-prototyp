@@ -190,15 +190,41 @@ class AudioArchivePlanTest(unittest.TestCase):
         self.assertFalse(missing.parent.exists())
 
     def test_archive_target_is_loaded_from_pipeline_environment(self):
-        env_file = self.root / "pipeline.env"
-        env_file.write_text(
-            "AUDIOREC_ARCHIVE_TARGET=gdrive,root_folder_id=archive-id:\n",
+        first = self.root / "first.env"
+        second = self.root / "second.env"
+        first.write_text(
+            "AUDIOREC_ARCHIVE_TARGET=gdrive,root_folder_id=first-id:\n",
+            encoding="utf-8",
+        )
+        second.write_text(
+            "AUDIOREC_ARCHIVE_TARGET=gdrive,root_folder_id=second-id:\n",
             encoding="utf-8",
         )
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(
+                resolve_archive_target(None, first),
+                "gdrive,root_folder_id=first-id:",
+            )
+            self.assertEqual(
+                resolve_archive_target(None, second),
+                "gdrive,root_folder_id=second-id:",
+            )
+            self.assertNotIn("AUDIOREC_ARCHIVE_TARGET", os.environ)
+
+    def test_process_environment_precedes_selected_pipeline_file(self):
+        env_file = self.root / "pipeline.env"
+        env_file.write_text(
+            "AUDIOREC_ARCHIVE_TARGET=gdrive,root_folder_id=file-id:\n",
+            encoding="utf-8",
+        )
+        with patch.dict(
+            os.environ,
+            {"AUDIOREC_ARCHIVE_TARGET": "gdrive,root_folder_id=process-id:"},
+            clear=True,
+        ):
+            self.assertEqual(
                 resolve_archive_target(None, env_file),
-                "gdrive,root_folder_id=archive-id:",
+                "gdrive,root_folder_id=process-id:",
             )
 
     def test_explicit_archive_target_does_not_require_environment_file(self):

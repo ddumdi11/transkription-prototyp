@@ -169,9 +169,11 @@ Remote-Nachprüfung bleibt jeder Eintrag auf `HOLD`:
   --json
 ```
 
-Lokale und entfernte Aufbewahrungsfristen sind absichtlich getrennt. Erst ein
-Aufruf mit ausdrücklich gesetzten Fristen und `--verify-remote` kann den reinen
-Policy-Status `ELIGIBLE` ergeben:
+Lokale und entfernte Aufbewahrungsfristen sind absichtlich getrennt. Erst
+konfigurierte lokale und entfernte Fristen zusammen mit `--verify-remote`
+können den reinen Policy-Status `ELIGIBLE` ergeben. Die Fristen dürfen aus
+`.inbox-watcher/pipeline.env` stammen und müssen nicht als CLI-Optionen
+angegeben werden:
 
 ```bash
 .venv/bin/python plan_audio_cleanup.py \
@@ -243,7 +245,7 @@ eine verifizierte Zwischendatei machen den Vorgang nach Abbruch oder Stromausfal
 wiederaufnehmbar; identische Wiederholungen sind idempotent.
 
 v0.5 löscht weder die WAV in der Live-Inbox noch das FLAC-Archiv. Die
-30-Tage-Frist bleibt vorerst reine Planung und verlangt vor einer späteren
+90-Tage-Frist bleibt vorerst reine Planung und verlangt vor einer späteren
 Drive-Bereinigung eine weitere, getrennte Freigabe.
 
 ## Vorgeschlagene Ausbaustufen

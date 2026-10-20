@@ -10,9 +10,9 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
-from typing import Any
+from typing import Any, Mapping
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from analyze_segment_quality import find_suspicious_segments
 from inbox_watcher import staging_name
@@ -24,14 +24,32 @@ DEFAULT_STATE = Path(".inbox-watcher/state.sqlite3")
 DEFAULT_ENV_FILE = Path(".inbox-watcher/pipeline.env")
 
 
+def read_pipeline_config(env_file: Path = DEFAULT_ENV_FILE) -> dict[str, str]:
+    """Parse one dotenv file without modifying the process environment."""
+    return {
+        key: value
+        for key, value in dotenv_values(env_file).items()
+        if value is not None
+    }
+
+
+def resolve_config_value(name: str, config: Mapping[str, str]) -> str | None:
+    """Resolve one value with the existing process environment taking precedence."""
+    if name in os.environ:
+        return os.environ[name]
+    return config.get(name)
+
+
 def resolve_archive_target(
-    explicit: str | None, env_file: Path = DEFAULT_ENV_FILE
+    explicit: str | None,
+    env_file: Path = DEFAULT_ENV_FILE,
+    config: Mapping[str, str] | None = None,
 ) -> str | None:
-    """Resolve an explicit archive target or lazily load the pipeline config."""
+    """Resolve an explicit target or one isolated pipeline configuration."""
     if explicit is not None:
         return explicit
-    load_dotenv(env_file, override=False)
-    return os.environ.get("AUDIOREC_ARCHIVE_TARGET")
+    selected = read_pipeline_config(env_file) if config is None else config
+    return resolve_config_value("AUDIOREC_ARCHIVE_TARGET", selected)
 
 
 def setup_cli_logging() -> logging.Logger:
