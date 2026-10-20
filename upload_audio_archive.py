@@ -24,7 +24,12 @@ from convert_audio_archive import (
     fsync_directory,
     select_conversion_plan,
 )
-from plan_audio_archive import DEFAULT_ARCHIVE_TARGET, DEFAULT_STATE, setup_cli_logging
+from plan_audio_archive import (
+    DEFAULT_ENV_FILE,
+    DEFAULT_STATE,
+    resolve_archive_target,
+    setup_cli_logging,
+)
 
 
 RECEIPT_NAME = "upload-receipt.json"
@@ -529,7 +534,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--drive-id", required=True)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--target", default=DEFAULT_ARCHIVE_TARGET)
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    parser.add_argument("--target")
     parser.add_argument("--timeout-seconds", type=float)
     parser.add_argument("--confirm", action="store_true")
     parser.add_argument("--json", action="store_true")
@@ -540,8 +546,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logger = setup_cli_logging()
     try:
+        target = resolve_archive_target(args.target, args.env_file)
         plan = select_upload_plan(
-            args.state, args.drive_id, args.output_dir, args.target
+            args.state, args.drive_id, args.output_dir, target
         )
         if not args.confirm:
             if args.json:

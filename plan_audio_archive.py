@@ -12,6 +12,8 @@ import sqlite3
 import sys
 from typing import Any
 
+from dotenv import load_dotenv
+
 from analyze_segment_quality import find_suspicious_segments
 from inbox_watcher import staging_name
 from quality_reviews import candidate_hash
@@ -19,7 +21,17 @@ from segment_metadata import SegmentMetadataError, load_segment_metadata
 
 
 DEFAULT_STATE = Path(".inbox-watcher/state.sqlite3")
-DEFAULT_ARCHIVE_TARGET = os.environ.get("AUDIOREC_ARCHIVE_TARGET")
+DEFAULT_ENV_FILE = Path(".inbox-watcher/pipeline.env")
+
+
+def resolve_archive_target(
+    explicit: str | None, env_file: Path = DEFAULT_ENV_FILE
+) -> str | None:
+    """Resolve an explicit archive target or lazily load the pipeline config."""
+    if explicit is not None:
+        return explicit
+    load_dotenv(env_file, override=False)
+    return os.environ.get("AUDIOREC_ARCHIVE_TARGET")
 
 
 def setup_cli_logging() -> logging.Logger:
@@ -282,9 +294,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Verarbeitete WAV-Dateien schreibgeschützt für ein FLAC-Archiv planen"
     )
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
     parser.add_argument(
-        "--archive-target", default=DEFAULT_ARCHIVE_TARGET,
-        help="Logisches rclone-Ziel; alternativ AUDIOREC_ARCHIVE_TARGET",
+        "--archive-target",
+        help=(
+            "Logisches rclone-Ziel; alternativ AUDIOREC_ARCHIVE_TARGET aus "
+            ".inbox-watcher/pipeline.env"
+        ),
     )
     parser.add_argument(
         "--drive-id", action="append", default=[], metavar="DRIVE_ID",
@@ -299,10 +315,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logger = setup_cli_logging()
     try:
+        archive_target = resolve_archive_target(args.archive_target, args.env_file)
         with open_readonly_state(args.state) as db:
             items = build_plan(
                 db,
-                archive_target=args.archive_target,
+                archive_target=archive_target,
                 selected_ids=set(args.drive_id) or None,
             )
         summary = summarize(items)
@@ -310,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({
                 "dry_run": True,
                 "state": str(args.state),
-                "archive_target": args.archive_target,
+                "archive_target": archive_target,
                 "summary": summary,
                 "items": items,
             }, ensure_ascii=False, indent=2))
@@ -322,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             if summary["hold_reasons"]:
                 logger.info("Zurückstellungen nach Grund: %s", summary["hold_reasons"])
-            if not args.archive_target:
+            if not archive_target:
                 logger.info(
                     "Archivziel noch nicht konfiguriert; erwartete FLAC-Namen werden "
                     "trotzdem geplant"

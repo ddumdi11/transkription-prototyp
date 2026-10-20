@@ -13,6 +13,8 @@ import sqlite3
 import subprocess
 from typing import Any
 
+from dotenv import load_dotenv
+
 from convert_audio_archive import (
     DEFAULT_OUTPUT,
     archive_key,
@@ -20,10 +22,11 @@ from convert_audio_archive import (
     file_digest,
 )
 from plan_audio_archive import (
-    DEFAULT_ARCHIVE_TARGET,
+    DEFAULT_ENV_FILE,
     DEFAULT_STATE,
     build_plan,
     open_readonly_state,
+    resolve_archive_target,
     setup_cli_logging,
 )
 from upload_audio_archive import (
@@ -41,7 +44,6 @@ from upload_audio_archive import (
 )
 
 
-DEFAULT_SOURCE = os.environ.get("AUDIOREC_SOURCE")
 LOCAL_RETENTION_ENV = "AUDIOREC_LOCAL_RETENTION_DAYS"
 REMOTE_RETENTION_ENV = "AUDIOREC_REMOTE_RETENTION_DAYS"
 
@@ -367,8 +369,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--archive-dir", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--archive-target", default=DEFAULT_ARCHIVE_TARGET)
-    parser.add_argument("--source", default=DEFAULT_SOURCE)
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    parser.add_argument("--archive-target")
+    parser.add_argument("--source")
     parser.add_argument("--drive-id", action="append", default=[])
     parser.add_argument("--local-retention-days", type=float)
     parser.add_argument("--remote-retention-days", type=float)
@@ -383,6 +386,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logger = setup_cli_logging()
     try:
+        load_dotenv(args.env_file, override=False)
+        archive_target_value = resolve_archive_target(
+            args.archive_target, args.env_file
+        )
+        source = args.source or os.environ.get("AUDIOREC_SOURCE")
         local_days = resolve_retention_days(
             args.local_retention_days,
             LOCAL_RETENTION_ENV,
@@ -399,15 +407,15 @@ def main(argv: list[str] | None = None) -> int:
             else datetime.now(timezone.utc)
         )
         archive_target = None
-        if args.archive_target:
-            archive_target, _archive_id = validate_remote_root(args.archive_target)
+        if archive_target_value:
+            archive_target, _archive_id = validate_remote_root(archive_target_value)
         source_rows = None
         if args.verify_remote:
             if archive_target is None:
                 raise ValueError("--verify-remote benötigt --archive-target")
-            if not args.source:
+            if not source:
                 raise ValueError("--verify-remote benötigt --source")
-            source_rows = source_remote_index(args.source)
+            source_rows = source_remote_index(source)
 
         selected = set(args.drive_id) or None
         with open_readonly_state(args.state) as db:

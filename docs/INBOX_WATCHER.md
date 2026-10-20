@@ -255,10 +255,12 @@ mit dem WAV.
 Der anschließende Upload bleibt in v0.3 ebenfalls ein ausdrücklicher
 Einzelschritt über `upload_audio_archive.py --drive-id ID --confirm`. Das Ziel
 muss mit `AUDIOREC_ARCHIVE_TARGET` per `root_folder_id` fest an einen separaten
-Drive-Archivordner gebunden sein. FLAC und `archive.json` werden unveränderlich
-hochgeladen, anschließend über Remote-Größe, SHA256 und Drive-ID geprüft und
-lokal mit `upload-receipt.json` quittiert. Weder v0.2 noch v0.3 löscht eine
-lokale oder entfernte WAV-Datei; beide lassen `cleanup_ready` auf `false`.
+Drive-Archivordner gebunden sein. Archivplaner, Upload und Bereinigungsplaner
+lesen diese Einstellung standardmäßig aus `.inbox-watcher/pipeline.env`.
+FLAC und `archive.json` werden unveränderlich hochgeladen, anschließend über
+Remote-Größe, SHA256 und Drive-ID geprüft und lokal mit
+`upload-receipt.json` quittiert. Weder v0.2 noch v0.3 löscht eine lokale oder
+entfernte WAV-Datei; beide lassen `cleanup_ready` auf `false`.
 
 Die Ausbaustufe v0.4 ergänzt mit `plan_audio_cleanup.py` ausschließlich einen
 rein lesenden Evidenz- und Fristenplan. Lokale und entfernte Aufbewahrungsdauer
@@ -268,7 +270,7 @@ keine Aktion: Der Planer kennt keinen Löschparameter, setzt
 `cleanup_ready: false` und gibt `action: null` aus. Details und Beispiele stehen
 in [`AUDIO_ARCHIVING_PLAN.md`](AUDIO_ARCHIVING_PLAN.md).
 
-Die bestätigte Richtlinie beträgt 7 Tage für die lokale Original-WAV und 30
+Die bestätigte Richtlinie beträgt 7 Tage für die lokale Original-WAV und 90
 Tage für die Original-WAV auf Drive. Sie wird über
 `AUDIOREC_LOCAL_RETENTION_DAYS` und `AUDIOREC_REMOTE_RETENTION_DAYS`
 konfiguriert. v0.5 kann nach einer erneuten Live-Prüfung genau eine lokale WAV
