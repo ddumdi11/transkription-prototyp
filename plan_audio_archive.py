@@ -10,7 +10,9 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
-from typing import Any
+from typing import Any, Mapping
+
+from dotenv import dotenv_values
 
 from analyze_segment_quality import find_suspicious_segments
 from inbox_watcher import staging_name
@@ -19,7 +21,35 @@ from segment_metadata import SegmentMetadataError, load_segment_metadata
 
 
 DEFAULT_STATE = Path(".inbox-watcher/state.sqlite3")
-DEFAULT_ARCHIVE_TARGET = os.environ.get("AUDIOREC_ARCHIVE_TARGET")
+DEFAULT_ENV_FILE = Path(".inbox-watcher/pipeline.env")
+
+
+def read_pipeline_config(env_file: Path = DEFAULT_ENV_FILE) -> dict[str, str]:
+    """Parse one dotenv file without modifying the process environment."""
+    return {
+        key: value
+        for key, value in dotenv_values(env_file).items()
+        if value is not None
+    }
+
+
+def resolve_config_value(name: str, config: Mapping[str, str]) -> str | None:
+    """Resolve one value with the existing process environment taking precedence."""
+    if name in os.environ:
+        return os.environ[name]
+    return config.get(name)
+
+
+def resolve_archive_target(
+    explicit: str | None,
+    env_file: Path = DEFAULT_ENV_FILE,
+    config: Mapping[str, str] | None = None,
+) -> str | None:
+    """Resolve an explicit target or one isolated pipeline configuration."""
+    if explicit is not None:
+        return explicit
+    selected = read_pipeline_config(env_file) if config is None else config
+    return resolve_config_value("AUDIOREC_ARCHIVE_TARGET", selected)
 
 
 def setup_cli_logging() -> logging.Logger:
@@ -282,9 +312,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Verarbeitete WAV-Dateien schreibgeschützt für ein FLAC-Archiv planen"
     )
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
     parser.add_argument(
-        "--archive-target", default=DEFAULT_ARCHIVE_TARGET,
-        help="Logisches rclone-Ziel; alternativ AUDIOREC_ARCHIVE_TARGET",
+        "--archive-target",
+        help=(
+            "Logisches rclone-Ziel; alternativ AUDIOREC_ARCHIVE_TARGET aus "
+            ".inbox-watcher/pipeline.env"
+        ),
     )
     parser.add_argument(
         "--drive-id", action="append", default=[], metavar="DRIVE_ID",
@@ -299,10 +333,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logger = setup_cli_logging()
     try:
+        archive_target = resolve_archive_target(args.archive_target, args.env_file)
         with open_readonly_state(args.state) as db:
             items = build_plan(
                 db,
-                archive_target=args.archive_target,
+                archive_target=archive_target,
                 selected_ids=set(args.drive_id) or None,
             )
         summary = summarize(items)
@@ -310,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({
                 "dry_run": True,
                 "state": str(args.state),
-                "archive_target": args.archive_target,
+                "archive_target": archive_target,
                 "summary": summary,
                 "items": items,
             }, ensure_ascii=False, indent=2))
@@ -322,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             if summary["hold_reasons"]:
                 logger.info("Zurückstellungen nach Grund: %s", summary["hold_reasons"])
-            if not args.archive_target:
+            if not archive_target:
                 logger.info(
                     "Archivziel noch nicht konfiguriert; erwartete FLAC-Namen werden "
                     "trotzdem geplant"

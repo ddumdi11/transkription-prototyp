@@ -58,12 +58,14 @@ ohne dass der Dry-Run darauf zugreift:
   --verbose
 ```
 
-Alternativ wird das Ziel aus `AUDIOREC_ARCHIVE_TARGET` gelesen. `--json` gibt
-den vollständigen maschinenlesbaren Plan aus; `--drive-id ID` begrenzt ihn auf
-eine oder mehrere konkrete Aufnahmen. Der Platzhalter steht für die ID eines
-eigenen Archiv-Unterordners innerhalb von „Z-System-Backups auf Drive“. Die
-ID-basierte rclone-Adresse verhindert, dass ein gleichnamiger Drive-Ordner zum
-falschen Ziel wird.
+Standardmäßig wird das Ziel aus `AUDIOREC_ARCHIVE_TARGET` in
+`.inbox-watcher/pipeline.env` gelesen; `--env-file` kann eine andere
+Konfigurationsdatei wählen und `--archive-target` sie ausdrücklich
+überschreiben. `--json` gibt den vollständigen maschinenlesbaren Plan aus;
+`--drive-id ID` begrenzt ihn auf eine oder mehrere konkrete Aufnahmen. Der
+Platzhalter steht für die ID eines eigenen Archiv-Unterordners innerhalb von
+„Z-System-Backups auf Drive“. Die ID-basierte rclone-Adresse verhindert, dass
+ein gleichnamiger Drive-Ordner zum falschen Ziel wird.
 
 `CANDIDATE` bedeutet in v0.1 nur: WAV liegt lokal mit der erwarteten Größe und
 der beim geprüften Staging festgehaltenen Drive-Identität vor, der Job ist
@@ -150,6 +152,10 @@ Wiederholung lädt nichts erneut hoch. WAV, Pipeline-Datenbank und Live-Inbox
 bleiben unverändert; `cleanup_ready` bleibt auch nach v0.3 `false`, weil noch
 keine Aufbewahrungs- und Löschrichtlinie freigegeben ist.
 
+Auch der Upload liest `AUDIOREC_ARCHIVE_TARGET` standardmäßig aus
+`.inbox-watcher/pipeline.env`; `--target` bleibt die ausdrückliche
+Kommandozeilen-Überschreibung.
+
 ## Rein lesende Bereinigungsplanung v0.4
 
 `plan_audio_cleanup.py` verbindet die zuvor getrennten Nachweise, führt aber
@@ -163,9 +169,11 @@ Remote-Nachprüfung bleibt jeder Eintrag auf `HOLD`:
   --json
 ```
 
-Lokale und entfernte Aufbewahrungsfristen sind absichtlich getrennt. Erst ein
-Aufruf mit ausdrücklich gesetzten Fristen und `--verify-remote` kann den reinen
-Policy-Status `ELIGIBLE` ergeben:
+Lokale und entfernte Aufbewahrungsfristen sind absichtlich getrennt. Erst
+konfigurierte lokale und entfernte Fristen zusammen mit `--verify-remote`
+können den reinen Policy-Status `ELIGIBLE` ergeben. Die Fristen dürfen aus
+`.inbox-watcher/pipeline.env` stammen und müssen nicht als CLI-Optionen
+angegeben werden:
 
 ```bash
 .venv/bin/python plan_audio_cleanup.py \
@@ -192,12 +200,13 @@ später ablaufende Remote-Frist weiterhin korrekt geplant werden, nachdem eine
 frühere lokale Bereinigung stattgefunden hat. Offene oder bestätigte
 QA-Auffälligkeiten blockieren beide Seiten.
 
-Ohne CLI-Überschreibung liest der Planer die Fristen aus
+Ohne CLI-Überschreibung liest der Planer Archivziel, Live-Inbox und Fristen aus
+`.inbox-watcher/pipeline.env`. Die Fristen stehen dort in
 `AUDIOREC_LOCAL_RETENTION_DAYS` und `AUDIOREC_REMOTE_RETENTION_DAYS`. Die
 aktuell bestätigte Richtlinie lautet:
 
 - lokale Original-WAV: mindestens **7 Tage** nach dem verifizierten FLAC-Upload,
-- Original-WAV in der Live-Inbox: mindestens **30 Tage** nach diesem Zeitpunkt.
+- Original-WAV in der Live-Inbox: mindestens **90 Tage** nach diesem Zeitpunkt.
 
 `ELIGIBLE` bedeutet ausschließlich, dass die angegebenen Richtlinien und
 Nachweise zum Planungszeitpunkt erfüllt wären. Auch dann bleiben
@@ -236,7 +245,7 @@ eine verifizierte Zwischendatei machen den Vorgang nach Abbruch oder Stromausfal
 wiederaufnehmbar; identische Wiederholungen sind idempotent.
 
 v0.5 löscht weder die WAV in der Live-Inbox noch das FLAC-Archiv. Die
-30-Tage-Frist bleibt vorerst reine Planung und verlangt vor einer späteren
+90-Tage-Frist bleibt vorerst reine Planung und verlangt vor einer späteren
 Drive-Bereinigung eine weitere, getrennte Freigabe.
 
 ## Vorgeschlagene Ausbaustufen

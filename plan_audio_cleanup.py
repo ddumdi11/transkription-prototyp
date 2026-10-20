@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
-from typing import Any
+from typing import Any, Mapping
 
 from convert_audio_archive import (
     DEFAULT_OUTPUT,
@@ -20,10 +20,13 @@ from convert_audio_archive import (
     file_digest,
 )
 from plan_audio_archive import (
-    DEFAULT_ARCHIVE_TARGET,
+    DEFAULT_ENV_FILE,
     DEFAULT_STATE,
     build_plan,
     open_readonly_state,
+    read_pipeline_config,
+    resolve_archive_target,
+    resolve_config_value,
     setup_cli_logging,
 )
 from upload_audio_archive import (
@@ -41,7 +44,6 @@ from upload_audio_archive import (
 )
 
 
-DEFAULT_SOURCE = os.environ.get("AUDIOREC_SOURCE")
 LOCAL_RETENTION_ENV = "AUDIOREC_LOCAL_RETENTION_DAYS"
 REMOTE_RETENTION_ENV = "AUDIOREC_REMOTE_RETENTION_DAYS"
 
@@ -68,12 +70,19 @@ def validate_retention_days(value: float | None, label: str) -> float | None:
 
 
 def resolve_retention_days(
-    cli_value: float | None, env_name: str, label: str
+    cli_value: float | None,
+    env_name: str,
+    label: str,
+    config: Mapping[str, str] | None = None,
 ) -> float | None:
     """Resolve a CLI override or an optional environment policy value."""
     if cli_value is not None:
         return validate_retention_days(cli_value, label)
-    raw = os.environ.get(env_name)
+    raw = (
+        os.environ.get(env_name)
+        if config is None
+        else resolve_config_value(env_name, config)
+    )
     if raw is None or not raw.strip():
         return None
     try:
@@ -367,8 +376,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--archive-dir", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--archive-target", default=DEFAULT_ARCHIVE_TARGET)
-    parser.add_argument("--source", default=DEFAULT_SOURCE)
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    parser.add_argument("--archive-target")
+    parser.add_argument("--source")
     parser.add_argument("--drive-id", action="append", default=[])
     parser.add_argument("--local-retention-days", type=float)
     parser.add_argument("--remote-retention-days", type=float)
@@ -383,15 +393,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logger = setup_cli_logging()
     try:
+        pipeline_config = read_pipeline_config(args.env_file)
+        archive_target_value = resolve_archive_target(
+            args.archive_target, args.env_file, pipeline_config
+        )
+        source = (
+            args.source
+            if args.source is not None
+            else resolve_config_value("AUDIOREC_SOURCE", pipeline_config)
+        )
         local_days = resolve_retention_days(
             args.local_retention_days,
             LOCAL_RETENTION_ENV,
             "Lokale Aufbewahrungsfrist",
+            pipeline_config,
         )
         remote_days = resolve_retention_days(
             args.remote_retention_days,
             REMOTE_RETENTION_ENV,
             "Remote-Aufbewahrungsfrist",
+            pipeline_config,
         )
         as_of = (
             parse_utc_timestamp(args.as_of, "--as-of")
@@ -399,15 +420,15 @@ def main(argv: list[str] | None = None) -> int:
             else datetime.now(timezone.utc)
         )
         archive_target = None
-        if args.archive_target:
-            archive_target, _archive_id = validate_remote_root(args.archive_target)
+        if archive_target_value:
+            archive_target, _archive_id = validate_remote_root(archive_target_value)
         source_rows = None
         if args.verify_remote:
             if archive_target is None:
                 raise ValueError("--verify-remote benötigt --archive-target")
-            if not args.source:
+            if not source:
                 raise ValueError("--verify-remote benötigt --source")
-            source_rows = source_remote_index(args.source)
+            source_rows = source_remote_index(source)
 
         selected = set(args.drive_id) or None
         with open_readonly_state(args.state) as db:
