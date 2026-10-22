@@ -109,6 +109,24 @@ Erkennung werden. `--use-pipeline-hints` ist deshalb eine ausdrückliche zweite
 Messvariante und kein Default. Jede Konfiguration bekommt über ihren Hash eine
 eigene Ergebnisdatei; kein vorhandener Vergleich wird überschrieben.
 
+## Bestätigte Textreparaturen planen
+
+`quality_reviews.py` speichert menschliche Hörentscheidungen getrennt vom
+kanonischen Transkript. `plan_transcript_repairs.py` fasst ausschließlich die
+aktuellen bestätigten Entscheidungen aus der vorhandenen Datenbank zusammen:
+
+```bash
+.venv/bin/python plan_transcript_repairs.py
+.venv/bin/python plan_transcript_repairs.py --drive-id DRIVE_ID --json
+```
+
+Der Planer schreibt weder Schema noch Journalzustand und verändert keine
+Transkriptdatei. Er unterscheidet reine Segmentgrenzfehler ohne nötige
+Textänderung von bestätigten Wortfehlern, Auslassungen oder Halluzinationen.
+Fehlt für einen Textfehler noch ein kuratierter Ersatztext, bleibt die Aktion
+ausdrücklich `CURATION_REQUIRED`. Pfad, Größe und SHA-256 des gegenwärtigen
+Transkripts binden einen späteren Reparaturschritt an genau diese Fassung.
+
 Bei stark kollabierten Endzeiten kann der gesuchte Text erst deutlich nach dem
 nominellen Intervall liegen. `--extend-to-next-segment` nutzt dann die nächste
 bekannte ASR-Grenze als kontrolliertes Fensterende. Eine Obergrenze von

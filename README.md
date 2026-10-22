@@ -334,6 +334,22 @@ Aufforderung zum Probehören. `--segment-id` kann mehrfach angegeben werden, um
 gezielt einzelne Stellen auszuwählen. Es erfolgt kein Drive-Upload und keine
 Veränderung des kanonischen Transkripts.
 
+Bestätigte Hörentscheidungen lassen sich anschließend schreibgeschützt zu
+einem Reparaturplan zusammenführen:
+
+```bash
+.venv/bin/python plan_transcript_repairs.py
+.venv/bin/python plan_transcript_repairs.py --drive-id DRIVE_ID --json
+```
+
+Der Plan bindet jede Entscheidung an Kandidatenhash, Segment, lokalen
+Transkriptpfad und SHA-256 des aktuellen Transkripts. Reine Grenzfehler werden
+als `NO_TEXT_CHANGE` ausgewiesen. Wortfehler, Auslassungen, Halluzinationen und
+sonstige bestätigte Textfehler benötigen entweder bereits hinterlegten
+Korrekturtext oder bleiben `CURATION_REQUIRED`. Der Befehl öffnet die
+Pipeline-Datenbank ausschließlich lesend und verändert weder Transkript noch
+Pipeline-State oder Drive.
+
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:
 
