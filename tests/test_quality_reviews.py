@@ -13,6 +13,9 @@ from quality_reviews import (
 )
 
 
+TRANSCRIPT_SHA256 = "a" * 64
+
+
 def candidate(text="Sehr viel Text in einem viel zu kurzen Segment."):
     return {
         "id": "segment-000001",
@@ -65,6 +68,7 @@ class QualityReviewsTest(unittest.TestCase):
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["BOUNDARY_ERROR"],
             now=1010,
         )
@@ -94,6 +98,7 @@ class QualityReviewsTest(unittest.TestCase):
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["WORD_ERROR", "BOUNDARY_ERROR"],
             note="Text vorhanden, Zeitgrenze falsch.",
             confirmed_text="Bestätigter Text",
@@ -106,6 +111,7 @@ class QualityReviewsTest(unittest.TestCase):
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["BOUNDARY_ERROR", "WORD_ERROR"],
             note="Text vorhanden, Zeitgrenze falsch.",
             confirmed_text="Bestätigter Text",
@@ -122,6 +128,7 @@ class QualityReviewsTest(unittest.TestCase):
             ["BOUNDARY_ERROR", "WORD_ERROR"],
         )
         self.assertEqual(row["decided_at"], 1100)
+        self.assertEqual(row["transcript_sha256"], TRANSCRIPT_SHA256)
 
     def test_divergent_second_decision_is_rejected(self):
         item = candidate()
@@ -133,6 +140,7 @@ class QualityReviewsTest(unittest.TestCase):
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["BOUNDARY_ERROR"],
             now=1100,
         )
@@ -144,6 +152,7 @@ class QualityReviewsTest(unittest.TestCase):
                 "segment-000001",
                 fingerprint,
                 "CONFIRMED",
+                transcript_sha256=TRANSCRIPT_SHA256,
                 issue_types=["OMISSION"],
                 now=1200,
             )
@@ -160,6 +169,7 @@ class QualityReviewsTest(unittest.TestCase):
                 "segment-000001",
                 fingerprint,
                 "DISMISSED",
+                transcript_sha256=TRANSCRIPT_SHA256,
                 issue_types=["BOUNDARY_ERROR"],
             )
 
@@ -170,7 +180,24 @@ class QualityReviewsTest(unittest.TestCase):
                 "segment-000001",
                 fingerprint,
                 "DISMISSED",
+                transcript_sha256=TRANSCRIPT_SHA256,
                 confirmed_text="Kein Fehler",
+            )
+
+    def test_decision_rejects_invalid_transcript_hash(self):
+        item = candidate()
+        fingerprint = candidate_hash(item)
+        sync_quality_candidates(self.db, "drive-id", [item], now=1000)
+
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            decide_quality_review(
+                self.db,
+                "drive-id",
+                "segment-000001",
+                fingerprint,
+                "CONFIRMED",
+                transcript_sha256="not-a-hash",
+                issue_types=["BOUNDARY_ERROR"],
             )
 
     def test_empty_rescan_removes_candidate_from_current_view(self):

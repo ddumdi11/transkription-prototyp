@@ -115,6 +115,28 @@ bekannte ASR-Grenze als kontrolliertes Fensterende. Eine Obergrenze von
 standardmäßig 90 Sekunden ab dem nominellen Segmentstart verhindert
 unbegrenzte Ausschnitte; sie ist mit `--max-extended-seconds` einstellbar.
 
+## Bestätigte Textreparaturen planen
+
+`quality_reviews.py` speichert menschliche Hörentscheidungen getrennt vom
+kanonischen Transkript. `plan_transcript_repairs.py` fasst ausschließlich die
+aktuellen bestätigten Entscheidungen aus der vorhandenen Datenbank zusammen:
+
+```bash
+.venv/bin/python plan_transcript_repairs.py
+.venv/bin/python plan_transcript_repairs.py --drive-id DRIVE_ID --json
+```
+
+Der Planer schreibt weder Schema noch Journalzustand und verändert keine
+Transkriptdatei. Er unterscheidet reine Segmentgrenzfehler ohne nötige
+Textänderung von bestätigten Wortfehlern, Auslassungen oder Halluzinationen.
+Fehlt für einen Textfehler noch ein kuratierter Ersatztext, bleibt die Aktion
+ausdrücklich `CURATION_REQUIRED`. Neue Hörentscheidungen speichern den
+SHA-256 des Transkripts zum Entscheidungszeitpunkt. Der Planer vergleicht ihn
+mit der gegenwärtigen Datei (`MATCHED` oder `MISMATCH`). Ältere Entscheidungen
+ohne gespeicherten Versionshash bleiben sichtbar, werden aber als
+`UNVERIFIED` ausgewiesen. Nur `MATCHED` ist für eine spätere Reparatur
+versionssicher freigegeben.
+
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben
 kanonischen Fachbegriffe als dauerhafte Referenz für Erklärungen und

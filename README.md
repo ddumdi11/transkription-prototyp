@@ -334,6 +334,24 @@ Aufforderung zum Probehören. `--segment-id` kann mehrfach angegeben werden, um
 gezielt einzelne Stellen auszuwählen. Es erfolgt kein Drive-Upload und keine
 Veränderung des kanonischen Transkripts.
 
+Bestätigte Hörentscheidungen lassen sich anschließend schreibgeschützt zu
+einem Reparaturplan zusammenführen:
+
+```bash
+.venv/bin/python plan_transcript_repairs.py
+.venv/bin/python plan_transcript_repairs.py --drive-id DRIVE_ID --json
+```
+
+Neue Entscheidungen binden Kandidatenhash und Segment an den SHA-256 des
+Transkripts zum Entscheidungszeitpunkt. Der Planer vergleicht ihn mit der
+aktuellen lokalen Datei: `MATCHED` ist versionssicher, `MISMATCH` verweist auf
+eine inzwischen geänderte Datei und ältere Entscheidungen ohne Hash erscheinen
+als `UNVERIFIED`. Reine Grenzfehler werden als `NO_TEXT_CHANGE` ausgewiesen.
+Wortfehler, Auslassungen, Halluzinationen und sonstige bestätigte Textfehler
+benötigen entweder bereits hinterlegten Korrekturtext oder bleiben
+`CURATION_REQUIRED`. Der Befehl öffnet die Pipeline-Datenbank ausschließlich
+lesend und verändert weder Transkript noch Pipeline-State oder Drive.
+
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:
 
