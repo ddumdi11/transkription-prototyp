@@ -48,12 +48,20 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
             note TEXT,
             confirmed_text TEXT,
             speaker_intent TEXT,
+            transcript_sha256 TEXT,
             first_detected_at REAL NOT NULL,
             last_detected_at REAL NOT NULL,
             decided_at REAL,
             PRIMARY KEY (drive_id, segment_id, candidate_hash)
         )"""
     )
+    columns = {
+        str(row[1]) for row in db.execute("PRAGMA table_info(quality_reviews)")
+    }
+    if "transcript_sha256" not in columns:
+        db.execute(
+            "ALTER TABLE quality_reviews ADD COLUMN transcript_sha256 TEXT"
+        )
     db.execute(
         """CREATE UNIQUE INDEX IF NOT EXISTS quality_reviews_current_idx
            ON quality_reviews(drive_id, segment_id) WHERE is_current = 1"""
@@ -210,6 +218,24 @@ def current_quality_reviews(
     ))
 
 
+def transcript_sha256_for_drive(db: sqlite3.Connection, drive_id: str) -> str:
+    """Hash the current local transcript associated with one pipeline job."""
+    row = db.execute(
+        "SELECT transcript_path FROM transcription_jobs WHERE drive_id=?",
+        (drive_id,),
+    ).fetchone()
+    if row is None or not isinstance(row[0], str) or not row[0].strip():
+        raise ValueError(f"Transkriptpfad fehlt für {drive_id}")
+    path = Path(row[0])
+    if not path.is_file():
+        raise ValueError(f"Lokales Transkript fehlt für {drive_id}: {path}")
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def decide_quality_review(
     db: sqlite3.Connection,
     drive_id: str,
@@ -217,6 +243,7 @@ def decide_quality_review(
     fingerprint: str,
     status: str,
     *,
+    transcript_sha256: str,
     issue_types: Iterable[str] = (),
     note: str | None = None,
     confirmed_text: str | None = None,
@@ -238,12 +265,19 @@ def decide_quality_review(
         raise ValueError(
             "DISMISSED darf keinen bestätigten Text oder Sprecherintention tragen"
         )
+    if (
+        not isinstance(transcript_sha256, str)
+        or len(transcript_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in transcript_sha256)
+    ):
+        raise ValueError("Transkript-SHA-256 ist ungültig")
     decision = {
         "status": status,
         "issue_types_json": json.dumps(issues, ensure_ascii=False),
         "note": note,
         "confirmed_text": confirmed_text,
         "speaker_intent": speaker_intent,
+        "transcript_sha256": transcript_sha256,
     }
     row = db.execute(
         """SELECT * FROM quality_reviews
@@ -263,7 +297,7 @@ def decide_quality_review(
         cursor = db.execute(
             """UPDATE quality_reviews
                SET status=?, issue_types_json=?, note=?, confirmed_text=?,
-                   speaker_intent=?, decided_at=?
+                   speaker_intent=?, transcript_sha256=?, decided_at=?
                WHERE drive_id=? AND segment_id=? AND candidate_hash=?
                  AND is_current=1 AND status='PENDING'""",
             (
@@ -272,6 +306,7 @@ def decide_quality_review(
                 note,
                 confirmed_text,
                 speaker_intent,
+                transcript_sha256,
                 moment,
                 drive_id,
                 segment_id,
@@ -381,12 +416,16 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         print(f"Registriert id={source_id}: {len(rows)} aktuelle Kandidaten")
                 else:
+                    transcript_sha256 = transcript_sha256_for_drive(
+                        db, args.drive_id
+                    )
                     changed = decide_quality_review(
                         db,
                         args.drive_id,
                         args.segment_id,
                         args.candidate_hash,
                         "CONFIRMED" if args.confirm else "DISMISSED",
+                        transcript_sha256=transcript_sha256,
                         issue_types=args.issue,
                         note=args.note,
                         confirmed_text=args.confirmed_text,

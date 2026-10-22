@@ -13,6 +13,7 @@ from quality_reviews import (
     decide_quality_review,
     ensure_quality_state,
     sync_quality_candidates,
+    transcript_sha256_for_drive,
 )
 
 
@@ -83,6 +84,7 @@ class TranscriptRepairPlanTest(unittest.TestCase):
                 segment_id,
                 fingerprint,
                 "CONFIRMED",
+                transcript_sha256=transcript_sha256_for_drive(self.db, drive_id),
                 issue_types=issues,
                 note="Hörprüfung bestätigt.",
                 confirmed_text=confirmed_text,
@@ -116,6 +118,10 @@ class TranscriptRepairPlanTest(unittest.TestCase):
         self.assertEqual(statuses["two"], "CURATION_REQUIRED")
         self.assertEqual(statuses["three"], "CURATED_REPLACEMENT_AVAILABLE")
         self.assertEqual(len(plan["recordings"][0]["transcript_sha256"]), 64)
+        self.assertEqual(
+            plan["summary"]["review_version_counts"],
+            {"MATCHED": 3, "MISMATCH": 0, "UNVERIFIED": 0},
+        )
 
     def test_groups_multiple_reviews_and_ignores_pending(self):
         self.add_review("one", "segment-000001", ["BOUNDARY_ERROR"])
@@ -162,6 +168,47 @@ class TranscriptRepairPlanTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Lokales Transkript fehlt"):
             build_repair_plan(self.db)
+
+    def test_missing_job_is_not_silently_omitted(self):
+        self.add_review("one", "segment-000001", ["OMISSION"])
+        self.db.execute("DELETE FROM transcription_jobs WHERE drive_id='one'")
+        self.db.commit()
+
+        with self.assertRaisesRegex(ValueError, "Transkriptpfad fehlt"):
+            build_repair_plan(self.db)
+
+    def test_changed_transcript_marks_decision_as_mismatch(self):
+        self.add_review("one", "segment-000001", ["OMISSION"])
+        transcript = Path(self.db.execute(
+            "SELECT transcript_path FROM transcription_jobs WHERE drive_id='one'"
+        ).fetchone()[0])
+        transcript.write_text("Nach der Hörentscheidung geändert.\n", encoding="utf-8")
+
+        plan = build_repair_plan(self.db)
+
+        self.assertEqual(
+            plan["recordings"][0]["transcript_version_status"], "MISMATCH"
+        )
+        self.assertEqual(
+            plan["recordings"][0]["reviews"][0]["transcript_version_status"],
+            "MISMATCH",
+        )
+
+    def test_legacy_decision_without_hash_is_unverified(self):
+        self.add_review("one", "segment-000001", ["BOUNDARY_ERROR"])
+        self.db.execute(
+            "UPDATE quality_reviews SET transcript_sha256=NULL WHERE drive_id='one'"
+        )
+        self.db.commit()
+
+        plan = build_repair_plan(self.db)
+
+        self.assertEqual(
+            plan["recordings"][0]["transcript_version_status"], "UNVERIFIED"
+        )
+        self.assertIsNone(
+            plan["recordings"][0]["reviews"][0]["decision_transcript_sha256"]
+        )
 
 
 if __name__ == "__main__":

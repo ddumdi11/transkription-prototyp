@@ -32,7 +32,7 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _require_tables(db: sqlite3.Connection) -> None:
+def _require_tables(db: sqlite3.Connection) -> bool:
     required = {"quality_reviews", "transcription_jobs", "published_transcripts"}
     rows = db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
@@ -45,6 +45,10 @@ def _require_tables(db: sqlite3.Connection) -> None:
             "Pipeline-Datenbank enthält nicht alle benötigten Tabellen: "
             + ", ".join(missing)
         )
+    quality_columns = {
+        str(row[1]) for row in db.execute("PRAGMA table_info(quality_reviews)")
+    }
+    return "transcript_sha256" in quality_columns
 
 
 def _string_list(raw: object, label: str, *, allow_empty: bool) -> list[str]:
@@ -82,7 +86,9 @@ def _recording_status(actions: Iterable[str]) -> str:
 
 
 def _confirmed_rows(
-    db: sqlite3.Connection, selected_ids: set[str] | None
+    db: sqlite3.Connection,
+    selected_ids: set[str] | None,
+    has_transcript_binding: bool,
 ) -> list[sqlite3.Row]:
     clauses = ["q.is_current=1", "q.status='CONFIRMED'"]
     values: list[str] = []
@@ -90,11 +96,15 @@ def _confirmed_rows(
         placeholders = ",".join("?" for _ in selected_ids)
         clauses.append(f"q.drive_id IN ({placeholders})")
         values.extend(sorted(selected_ids))
+    binding = (
+        "q.transcript_sha256" if has_transcript_binding else "NULL"
+    )
     return list(db.execute(
-        f"""SELECT q.*, j.transcript_path,
+        f"""SELECT q.*, {binding} AS decision_transcript_sha256,
+                   j.transcript_path,
                    p.remote_path, p.remote_id, p.published_at
             FROM quality_reviews q
-            JOIN transcription_jobs j ON j.drive_id=q.drive_id
+            LEFT JOIN transcription_jobs j ON j.drive_id=q.drive_id
             LEFT JOIN published_transcripts p ON p.drive_id=q.drive_id
             WHERE {' AND '.join(clauses)}
             ORDER BY q.drive_id, q.segment_start, q.segment_id""",
@@ -106,11 +116,11 @@ def build_repair_plan(
     db: sqlite3.Connection, selected_ids: set[str] | None = None
 ) -> dict[str, Any]:
     """Build a deterministic repair plan from current confirmed QA rows."""
-    _require_tables(db)
+    has_transcript_binding = _require_tables(db)
     requested = set(selected_ids or ())
     if any(not isinstance(value, str) or not value.strip() for value in requested):
         raise ValueError("Drive-ID darf nicht leer sein")
-    rows = _confirmed_rows(db, requested or None)
+    rows = _confirmed_rows(db, requested or None, has_transcript_binding)
     found_ids = {str(row["drive_id"]) for row in rows}
     missing_ids = sorted(requested - found_ids)
     if missing_ids:
@@ -183,6 +193,22 @@ def build_repair_plan(
         elif recording["transcript_path"] != str(transcript_path):
             raise ValueError(f"Widersprüchliche Transkriptpfade für {drive_id}")
 
+        decision_hash = row["decision_transcript_sha256"]
+        if decision_hash is None:
+            version_status = "UNVERIFIED"
+        elif (
+            not isinstance(decision_hash, str)
+            or len(decision_hash) != 64
+            or any(character not in "0123456789abcdef" for character in decision_hash)
+        ):
+            raise ValueError(
+                f"Ungültiger Entscheidungs-Hash für {drive_id}/{row['segment_id']}"
+            )
+        elif decision_hash == recording["transcript_sha256"]:
+            version_status = "MATCHED"
+        else:
+            version_status = "MISMATCH"
+
         recording["reviews"].append({
             "segment_id": row["segment_id"],
             "candidate_hash": row["candidate_hash"],
@@ -194,15 +220,34 @@ def build_repair_plan(
             "note": row["note"],
             "confirmed_text": row["confirmed_text"],
             "speaker_intent": row["speaker_intent"],
+            "decision_transcript_sha256": decision_hash,
+            "transcript_version_status": version_status,
             "action": action,
         })
 
     recordings = list(grouped.values())
     recording_counts = {action: 0 for action in sorted(REPAIR_ACTIONS)}
+    review_version_counts = {
+        status: 0 for status in ("MATCHED", "MISMATCH", "UNVERIFIED")
+    }
+    recording_version_counts = dict(review_version_counts)
     for recording in recordings:
         status = _recording_status(review["action"] for review in recording["reviews"])
         recording["status"] = status
         recording_counts[status] += 1
+        review_versions = {
+            review["transcript_version_status"] for review in recording["reviews"]
+        }
+        for review in recording["reviews"]:
+            review_version_counts[review["transcript_version_status"]] += 1
+        if "MISMATCH" in review_versions:
+            version_status = "MISMATCH"
+        elif "UNVERIFIED" in review_versions:
+            version_status = "UNVERIFIED"
+        else:
+            version_status = "MATCHED"
+        recording["transcript_version_status"] = version_status
+        recording_version_counts[version_status] += 1
     return {
         "schema_version": 1,
         "plan_type": "confirmed_transcript_repair_dry_run",
@@ -211,6 +256,8 @@ def build_repair_plan(
             "review_count": len(rows),
             "review_action_counts": action_counts,
             "recording_status_counts": recording_counts,
+            "review_version_counts": review_version_counts,
+            "recording_version_counts": recording_version_counts,
         },
         "recordings": recordings,
     }
@@ -243,11 +290,13 @@ def print_plan(plan: dict[str, Any], as_json: bool) -> None:
     for recording in plan["recordings"]:
         print(
             f"{recording['status']} id={recording['drive_id']} "
+            f"version={recording['transcript_version_status']} "
             f"transcript={recording['transcript_path']}"
         )
         for review in recording["reviews"]:
             print(
                 f"  {review['action']} segment={review['segment_id']} "
+                f"version={review['transcript_version_status']} "
                 f"issues={','.join(review['issue_types'])}"
             )
 
