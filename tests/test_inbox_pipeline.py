@@ -27,6 +27,18 @@ class InboxPipelineTest(unittest.TestCase):
         self.db.close()
         self.temp.cleanup()
 
+    def add_done_transcript(self, drive_id="drive-id"):
+        transcript = Path(self.temp.name) / f"{drive_id}.md"
+        transcript.write_text("# Test\n", encoding="utf-8")
+        self.db.execute(
+            """INSERT INTO transcription_jobs
+               (drive_id,status,attempts,local_audio,transcript_path,last_error,updated_at)
+               VALUES (?, 'DONE', 1, 'audio.wav', ?, NULL, 1000)""",
+            (drive_id, str(transcript)),
+        )
+        self.db.commit()
+        return transcript
+
     def test_activation_excludes_old_ready_and_duplicate(self):
         old = audio("old", "old.wav", "aaa")
         new = audio("a-new", "new.wav", "bbb")
@@ -170,6 +182,7 @@ class InboxPipelineTest(unittest.TestCase):
                     validate_segment_metadata(path, "drive-id")
 
     def test_quality_log_reports_text_only_timestamp_candidates(self):
+        self.add_done_transcript()
         path = Path(self.temp.name) / "segments.json"
         path.write_text(
             json.dumps({
@@ -214,6 +227,7 @@ class InboxPipelineTest(unittest.TestCase):
         self.assertEqual((row["status"], row["is_current"]), ("PENDING", 1))
 
     def test_quality_log_treats_empty_transcript_as_nonblocking_state(self):
+        self.add_done_transcript()
         path = Path(self.temp.name) / "segments.json"
         path.write_text(
             json.dumps({

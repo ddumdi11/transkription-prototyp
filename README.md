@@ -348,9 +348,12 @@ aktuellen lokalen Datei: `MATCHED` ist versionssicher, `MISMATCH` verweist auf
 eine inzwischen geänderte Datei und ältere Entscheidungen ohne Hash erscheinen
 als `UNVERIFIED`. Reine Grenzfehler werden als `NO_TEXT_CHANGE` ausgewiesen.
 Wortfehler, Auslassungen, Halluzinationen und sonstige bestätigte Textfehler
-benötigen entweder bereits hinterlegten Korrekturtext oder bleiben
-`CURATION_REQUIRED`. Der Befehl öffnet die Pipeline-Datenbank ausschließlich
-lesend und verändert weder Transkript noch Pipeline-State oder Drive.
+werden mit hinterlegtem Korrekturtext als `CURATED_REPLACEMENT_AVAILABLE`
+ausgewiesen; ohne ihn bleiben sie `CURATION_REQUIRED`. Der Quellhash wird schon
+bei der Kandidatenregistrierung gebunden, vor der Entscheidung erneut geprüft
+und für die spätere Planprüfung gespeichert. Der Befehl öffnet die
+Pipeline-Datenbank ausschließlich lesend und verändert weder Transkript noch
+Pipeline-State oder Drive.
 
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:

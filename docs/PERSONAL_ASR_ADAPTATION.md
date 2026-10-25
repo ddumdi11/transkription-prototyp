@@ -129,13 +129,16 @@ aktuellen bestätigten Entscheidungen aus der vorhandenen Datenbank zusammen:
 Der Planer schreibt weder Schema noch Journalzustand und verändert keine
 Transkriptdatei. Er unterscheidet reine Segmentgrenzfehler ohne nötige
 Textänderung von bestätigten Wortfehlern, Auslassungen oder Halluzinationen.
-Fehlt für einen Textfehler noch ein kuratierter Ersatztext, bleibt die Aktion
-ausdrücklich `CURATION_REQUIRED`. Neue Hörentscheidungen speichern den
-SHA-256 des Transkripts zum Entscheidungszeitpunkt. Der Planer vergleicht ihn
-mit der gegenwärtigen Datei (`MATCHED` oder `MISMATCH`). Ältere Entscheidungen
-ohne gespeicherten Versionshash bleiben sichtbar, werden aber als
-`UNVERIFIED` ausgewiesen. Nur `MATCHED` ist für eine spätere Reparatur
-versionssicher freigegeben.
+Ist für einen Textfehler bereits ein kuratierter Ersatztext vorhanden, lautet
+die Aktion `CURATED_REPLACEMENT_AVAILABLE`; fehlt er noch, bleibt sie
+ausdrücklich `CURATION_REQUIRED`. Schon bei der Kandidatenregistrierung wird
+der SHA-256 des Quelltranskripts gebunden. Eine Entscheidung wird nur
+angenommen, solange die gegenwärtige Datei noch genau dieser Version entspricht,
+und speichert denselben Hash erneut. Der Planer vergleicht ihn später mit der
+gegenwärtigen Datei (`MATCHED` oder `MISMATCH`). Ältere Entscheidungen ohne
+gespeicherten Versionshash bleiben sichtbar, werden aber als `UNVERIFIED`
+ausgewiesen. Nur `MATCHED` ist für eine spätere Reparatur versionssicher
+freigegeben.
 
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben

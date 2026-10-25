@@ -16,7 +16,7 @@ from dotenv import dotenv_values
 
 from analyze_segment_quality import find_suspicious_segments
 from inbox_watcher import staging_name
-from quality_reviews import candidate_hash
+from quality_reviews import candidate_hash, transcript_sha256_for_drive
 from segment_metadata import SegmentMetadataError, load_segment_metadata
 
 
@@ -157,6 +157,7 @@ def assess_quality(
     try:
         payload = load_segment_metadata(sidecar, expected_source_id=drive_id)
         candidates = find_suspicious_segments(payload)
+        transcript_sha256 = transcript_sha256_for_drive(db, drive_id)
     except (OSError, SegmentMetadataError, ValueError) as exc:
         return {
             "status": "METADATA_INVALID",
@@ -172,7 +173,11 @@ def assess_quality(
         for row in current
     }
     detected_keys = {
-        (str(candidate["id"]), candidate_hash(candidate)) for candidate in candidates
+        (
+            str(candidate["id"]),
+            candidate_hash(candidate, transcript_sha256),
+        )
+        for candidate in candidates
     }
     counts = {"PENDING": 0, "CONFIRMED": 0, "DISMISSED": 0, "UNREGISTERED": 0}
     for key in detected_keys:

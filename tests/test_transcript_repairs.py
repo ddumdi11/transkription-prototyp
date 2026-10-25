@@ -73,10 +73,17 @@ class TranscriptRepairPlanTest(unittest.TestCase):
                 ),
             )
         item = candidate(segment_id)
-        fingerprint = candidate_hash(item)
+        transcript_sha256 = transcript_sha256_for_drive(self.db, drive_id)
+        fingerprint = candidate_hash(item, transcript_sha256)
         current = self.candidates.setdefault(drive_id, [])
         current.append(item)
-        sync_quality_candidates(self.db, drive_id, current, now=1020)
+        sync_quality_candidates(
+            self.db,
+            drive_id,
+            current,
+            transcript_sha256=transcript_sha256,
+            now=1020,
+        )
         if status == "CONFIRMED":
             decide_quality_review(
                 self.db,
@@ -84,7 +91,7 @@ class TranscriptRepairPlanTest(unittest.TestCase):
                 segment_id,
                 fingerprint,
                 "CONFIRMED",
-                transcript_sha256=transcript_sha256_for_drive(self.db, drive_id),
+                transcript_sha256=transcript_sha256,
                 issue_types=issues,
                 note="Hörprüfung bestätigt.",
                 confirmed_text=confirmed_text,
