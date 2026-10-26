@@ -145,9 +145,12 @@ Für bestätigte Entscheidungen aus der Zeit vor dieser Hash-Bindung prüft
 `bind_legacy_quality_reviews.py` im Standardlauf rein lesend eine konservative
 Beweiskette: aktueller und veröffentlichter Transkripthash, zeitliche Reihenfolge
 von Veröffentlichung, Dateien und Entscheidung sowie der unveränderte
-Detektorkandidat müssen zusammenpassen. Nur `ELIGIBLE` kann mit dem angezeigten
-Plan-SHA-256 ausdrücklich und atomar gebunden werden; `HOLD` bleibt unverändert.
-Dabei werden weder Transkript noch Segmentdatei oder Drive verändert.
+Detektorkandidat müssen zusammenpassen. Eine bestätigte Ausführung ist
+absichtlich unteilbar: Enthält der unveränderte Plan auch nur einen
+`HOLD`-Eintrag, endet der gesamte Lauf vor der ersten Bindung; auch alle
+`ELIGIBLE`-Einträge bleiben dann unverändert. Nur ein Plan ohne `HOLD` kann mit
+dem angezeigten Plan-SHA-256 ausdrücklich und atomar gebunden werden. Dabei
+werden weder Transkript noch Segmentdatei oder Drive verändert.
 
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben
