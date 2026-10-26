@@ -21,9 +21,10 @@ faster-whisper gelieferten Segmenttexte und Zeitgrenzen. Mit
 `--write-segments` entsteht neben dem Markdown eine Begleitdatei
 `<Name>.segments.json`. Sie enthält stabile Segment-IDs, Start-/Endzeit, den
 unbearbeiteten ASR-Text und separat den Text nach sicheren
-Glossarersetzungen. Die automatische Inbox-Pipeline aktiviert diese Ausgabe
-und trägt die eindeutige Drive-ID als `source_id` ein. Sie akzeptiert einen Job
-nur mit vorhandener Segmentdatei als abgeschlossen.
+Glossarersetzungen. Der eingebettete `transcript_sha256` bindet sie an genau
+die gleichzeitig erzeugte Markdown-Fassung. Die automatische Inbox-Pipeline
+aktiviert diese Ausgabe und trägt die eindeutige Drive-ID als `source_id` ein.
+Sie akzeptiert einen Job nur mit vorhandener Segmentdatei als abgeschlossen.
 
 ## Segmentzeiten rein lesend prüfen
 
@@ -114,6 +115,31 @@ nominellen Intervall liegen. `--extend-to-next-segment` nutzt dann die nächste
 bekannte ASR-Grenze als kontrolliertes Fensterende. Eine Obergrenze von
 standardmäßig 90 Sekunden ab dem nominellen Segmentstart verhindert
 unbegrenzte Ausschnitte; sie ist mit `--max-extended-seconds` einstellbar.
+
+## Bestätigte Textreparaturen planen
+
+`quality_reviews.py` speichert menschliche Hörentscheidungen getrennt vom
+kanonischen Transkript. `plan_transcript_repairs.py` fasst ausschließlich die
+aktuellen bestätigten Entscheidungen aus der vorhandenen Datenbank zusammen:
+
+```bash
+.venv/bin/python plan_transcript_repairs.py
+.venv/bin/python plan_transcript_repairs.py --drive-id DRIVE_ID --json
+```
+
+Der Planer schreibt weder Schema noch Journalzustand und verändert keine
+Transkriptdatei. Er unterscheidet reine Segmentgrenzfehler ohne nötige
+Textänderung von bestätigten Wortfehlern, Auslassungen oder Halluzinationen.
+Ist für einen Textfehler bereits ein kuratierter Ersatztext vorhanden, lautet
+die Aktion `CURATED_REPLACEMENT_AVAILABLE`; fehlt er noch, bleibt sie
+ausdrücklich `CURATION_REQUIRED`. Schon bei der Kandidatenregistrierung wird
+der SHA-256 des Quelltranskripts gebunden. Eine Entscheidung wird nur
+angenommen, solange die gegenwärtige Datei noch genau dieser Version entspricht,
+und speichert denselben Hash erneut. Der Planer vergleicht ihn später mit der
+gegenwärtigen Datei (`MATCHED` oder `MISMATCH`). Ältere Entscheidungen ohne
+gespeicherten Versionshash bleiben sichtbar, werden aber als `UNVERIFIED`
+ausgewiesen. Nur `MATCHED` ist für eine spätere Reparatur versionssicher
+freigegeben.
 
 Der gestufte [Lernplan für lokale KI und den digitalen
 Check](LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md) verwendet dieselben

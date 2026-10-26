@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -26,6 +27,18 @@ class InboxPipelineTest(unittest.TestCase):
     def tearDown(self):
         self.db.close()
         self.temp.cleanup()
+
+    def add_done_transcript(self, drive_id="drive-id"):
+        transcript = Path(self.temp.name) / f"{drive_id}.md"
+        transcript.write_text("# Test\n", encoding="utf-8")
+        self.db.execute(
+            """INSERT INTO transcription_jobs
+               (drive_id,status,attempts,local_audio,transcript_path,last_error,updated_at)
+               VALUES (?, 'DONE', 1, 'audio.wav', ?, NULL, 1000)""",
+            (drive_id, str(transcript)),
+        )
+        self.db.commit()
+        return transcript
 
     def test_activation_excludes_old_ready_and_duplicate(self):
         old = audio("old", "old.wav", "aaa")
@@ -170,11 +183,15 @@ class InboxPipelineTest(unittest.TestCase):
                     validate_segment_metadata(path, "drive-id")
 
     def test_quality_log_reports_text_only_timestamp_candidates(self):
+        transcript = self.add_done_transcript()
         path = Path(self.temp.name) / "segments.json"
         path.write_text(
             json.dumps({
                 "schema_version": 1,
                 "source_id": "drive-id",
+                "transcript_sha256": hashlib.sha256(
+                    transcript.read_bytes()
+                ).hexdigest(),
                 "segments": [
                     {
                         "id": "segment-000001",
@@ -214,11 +231,15 @@ class InboxPipelineTest(unittest.TestCase):
         self.assertEqual((row["status"], row["is_current"]), ("PENDING", 1))
 
     def test_quality_log_treats_empty_transcript_as_nonblocking_state(self):
+        transcript = self.add_done_transcript()
         path = Path(self.temp.name) / "segments.json"
         path.write_text(
             json.dumps({
                 "schema_version": 1,
                 "source_id": "drive-id",
+                "transcript_sha256": hashlib.sha256(
+                    transcript.read_bytes()
+                ).hexdigest(),
                 "segments": [],
             }),
             encoding="utf-8",

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import sqlite3
@@ -16,7 +17,11 @@ from plan_audio_archive import (
     summarize,
 )
 from publish_transcripts import prepare_publish_state
-from quality_reviews import ensure_quality_state, sync_quality_candidates
+from quality_reviews import (
+    ensure_quality_state,
+    sync_quality_candidates,
+    transcript_sha256_for_drive,
+)
 
 
 class AudioArchivePlanTest(unittest.TestCase):
@@ -53,6 +58,9 @@ class AudioArchivePlanTest(unittest.TestCase):
         payload = {
             "schema_version": 1,
             "source_id": drive_id,
+            "transcript_sha256": hashlib.sha256(
+                transcript.read_bytes()
+            ).hexdigest(),
             "segments": [{
                 "id": "segment-000001", "start": 0.0, "end": end,
                 "raw_text": f" {text} ", "text": text,
@@ -137,7 +145,12 @@ class AudioArchivePlanTest(unittest.TestCase):
             transcript.with_suffix(".segments.json").read_text(encoding="utf-8")
         )
         sync_quality_candidates(
-            self.db, "drive-id", find_suspicious_segments(payload), now=1040
+            self.db,
+            "drive-id",
+            find_suspicious_segments(payload),
+            transcript_sha256=transcript_sha256_for_drive(self.db, "drive-id"),
+            segment_transcript_sha256=payload["transcript_sha256"],
+            now=1040,
         )
         item = build_plan(self.db)[0]
 
@@ -154,7 +167,14 @@ class AudioArchivePlanTest(unittest.TestCase):
             transcript.with_suffix(".segments.json").read_text(encoding="utf-8")
         )
         sync_quality_candidates(
-            self.db, "unregistered", find_suspicious_segments(payload), now=1040
+            self.db,
+            "unregistered",
+            find_suspicious_segments(payload),
+            transcript_sha256=transcript_sha256_for_drive(
+                self.db, "unregistered"
+            ),
+            segment_transcript_sha256=payload["transcript_sha256"],
+            now=1040,
         )
         payload["segments"][0]["end"] = 10.0
         transcript.with_suffix(".segments.json").write_text(

@@ -48,12 +48,26 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
             note TEXT,
             confirmed_text TEXT,
             speaker_intent TEXT,
+            candidate_transcript_sha256 TEXT,
+            transcript_sha256 TEXT,
             first_detected_at REAL NOT NULL,
             last_detected_at REAL NOT NULL,
             decided_at REAL,
             PRIMARY KEY (drive_id, segment_id, candidate_hash)
         )"""
     )
+    columns = {
+        str(row[1]) for row in db.execute("PRAGMA table_info(quality_reviews)")
+    }
+    if "transcript_sha256" not in columns:
+        db.execute(
+            "ALTER TABLE quality_reviews ADD COLUMN transcript_sha256 TEXT"
+        )
+    if "candidate_transcript_sha256" not in columns:
+        db.execute(
+            "ALTER TABLE quality_reviews "
+            "ADD COLUMN candidate_transcript_sha256 TEXT"
+        )
     db.execute(
         """CREATE UNIQUE INDEX IF NOT EXISTS quality_reviews_current_idx
            ON quality_reviews(drive_id, segment_id) WHERE is_current = 1"""
@@ -108,10 +122,23 @@ def _candidate_material(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def candidate_hash(candidate: dict[str, Any]) -> str:
-    """Bind a human decision to one exact detector result."""
+def _validate_transcript_sha256(value: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError("Transkript-SHA-256 ist ungültig")
+    return value
+
+
+def candidate_hash(candidate: dict[str, Any], transcript_sha256: str) -> str:
+    """Bind a human decision to one detector result and transcript version."""
     encoded = json.dumps(
-        _candidate_material(candidate),
+        {
+            "candidate": _candidate_material(candidate),
+            "transcript_sha256": _validate_transcript_sha256(transcript_sha256),
+        },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -124,11 +151,21 @@ def sync_quality_candidates(
     db: sqlite3.Connection,
     drive_id: str,
     candidates: Iterable[dict[str, Any]],
+    *,
+    transcript_sha256: str,
+    segment_transcript_sha256: str,
     now: float | None = None,
 ) -> list[sqlite3.Row]:
     """Install the current detector results while retaining decision history."""
     if not isinstance(drive_id, str) or not drive_id.strip():
         raise ValueError("Drive-ID darf nicht leer sein")
+    current_hash = _validate_transcript_sha256(transcript_sha256)
+    source_hash = _validate_transcript_sha256(segment_transcript_sha256)
+    if source_hash != current_hash:
+        raise ValueError(
+            "Segmentdatei gehört nicht zur aktuellen Transkriptversion; "
+            "Segmentdatei neu erzeugen"
+        )
     ensure_quality_state(db)
     moment = time.time() if now is None else now
     prepared: list[tuple[dict[str, Any], str]] = []
@@ -139,7 +176,7 @@ def sync_quality_candidates(
         if segment_id in seen_ids:
             raise ValueError(f"Doppelte QA-Segment-ID: {segment_id}")
         seen_ids.add(segment_id)
-        prepared.append((material, candidate_hash(candidate)))
+        prepared.append((material, candidate_hash(candidate, source_hash)))
 
     with db:
         db.execute(
@@ -164,9 +201,9 @@ def sync_quality_candidates(
                 """INSERT INTO quality_reviews
                    (drive_id, segment_id, candidate_hash, is_current, status,
                     flags_json, issue_types_json, segment_start, segment_end,
-                    segment_text, chars_per_second, first_detected_at,
-                    last_detected_at)
-                   VALUES (?, ?, ?, 1, 'PENDING', ?, '[]', ?, ?, ?, ?, ?, ?)""",
+                    segment_text, chars_per_second, candidate_transcript_sha256,
+                    first_detected_at, last_detected_at)
+                   VALUES (?, ?, ?, 1, 'PENDING', ?, '[]', ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     drive_id,
                     material["id"],
@@ -176,6 +213,7 @@ def sync_quality_candidates(
                     material["end"],
                     material["text"],
                     material["chars_per_second"],
+                    source_hash,
                     moment,
                     moment,
                 ),
@@ -210,6 +248,24 @@ def current_quality_reviews(
     ))
 
 
+def transcript_sha256_for_drive(db: sqlite3.Connection, drive_id: str) -> str:
+    """Hash the current local transcript associated with one pipeline job."""
+    row = db.execute(
+        "SELECT transcript_path FROM transcription_jobs WHERE drive_id=?",
+        (drive_id,),
+    ).fetchone()
+    if row is None or not isinstance(row[0], str) or not row[0].strip():
+        raise ValueError(f"Transkriptpfad fehlt für {drive_id}")
+    path = Path(row[0])
+    if not path.is_file():
+        raise ValueError(f"Lokales Transkript fehlt für {drive_id}: {path}")
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def decide_quality_review(
     db: sqlite3.Connection,
     drive_id: str,
@@ -217,6 +273,7 @@ def decide_quality_review(
     fingerprint: str,
     status: str,
     *,
+    transcript_sha256: str,
     issue_types: Iterable[str] = (),
     note: str | None = None,
     confirmed_text: str | None = None,
@@ -238,12 +295,14 @@ def decide_quality_review(
         raise ValueError(
             "DISMISSED darf keinen bestätigten Text oder Sprecherintention tragen"
         )
+    current_hash = _validate_transcript_sha256(transcript_sha256)
     decision = {
         "status": status,
         "issue_types_json": json.dumps(issues, ensure_ascii=False),
         "note": note,
         "confirmed_text": confirmed_text,
         "speaker_intent": speaker_intent,
+        "transcript_sha256": current_hash,
     }
     row = db.execute(
         """SELECT * FROM quality_reviews
@@ -252,6 +311,16 @@ def decide_quality_review(
     ).fetchone()
     if row is None:
         raise ValueError("Aktueller QA-Kandidat mit diesem Fingerabdruck fehlt")
+    candidate_source_hash = row["candidate_transcript_sha256"]
+    if candidate_source_hash is None:
+        raise ValueError(
+            "QA-Kandidat besitzt keinen Versionshash; Segmentdatei neu registrieren"
+        )
+    if candidate_source_hash != current_hash:
+        raise ValueError(
+            "Transkript wurde seit der Kandidatenregistrierung geändert; "
+            "Segmentdatei neu registrieren"
+        )
     if row["status"] != "PENDING":
         if all(row[key] == value for key, value in decision.items()):
             return False
@@ -263,7 +332,7 @@ def decide_quality_review(
         cursor = db.execute(
             """UPDATE quality_reviews
                SET status=?, issue_types_json=?, note=?, confirmed_text=?,
-                   speaker_intent=?, decided_at=?
+                   speaker_intent=?, transcript_sha256=?, decided_at=?
                WHERE drive_id=? AND segment_id=? AND candidate_hash=?
                  AND is_current=1 AND status='PENDING'""",
             (
@@ -272,6 +341,7 @@ def decide_quality_review(
                 note,
                 confirmed_text,
                 speaker_intent,
+                current_hash,
                 moment,
                 drive_id,
                 segment_id,
@@ -376,17 +446,28 @@ def main(argv: list[str] | None = None) -> int:
                         source_id = payload.get("source_id")
                         if not isinstance(source_id, str) or not source_id.strip():
                             raise ValueError(f"Segmentdatei enthält keine Drive-ID: {path}")
+                        transcript_sha256 = transcript_sha256_for_drive(db, source_id)
                         rows = sync_quality_candidates(
-                            db, source_id, find_suspicious_segments(payload)
+                            db,
+                            source_id,
+                            find_suspicious_segments(payload),
+                            transcript_sha256=transcript_sha256,
+                            segment_transcript_sha256=payload.get(
+                                "transcript_sha256"
+                            ),
                         )
                         print(f"Registriert id={source_id}: {len(rows)} aktuelle Kandidaten")
                 else:
+                    transcript_sha256 = transcript_sha256_for_drive(
+                        db, args.drive_id
+                    )
                     changed = decide_quality_review(
                         db,
                         args.drive_id,
                         args.segment_id,
                         args.candidate_hash,
                         "CONFIRMED" if args.confirm else "DISMISSED",
+                        transcript_sha256=transcript_sha256,
                         issue_types=args.issue,
                         note=args.note,
                         confirmed_text=args.confirmed_text,

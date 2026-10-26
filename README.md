@@ -262,7 +262,8 @@ python transcribe.py input
 Die fertigen Transkripte findest du in `output/` als `.md`-Dateien. Mit
 `--write-segments` schreibt der lokale Provider zusätzlich je Aufnahme eine
 maschinenlesbare Datei `<Name>.segments.json` mit Segment-IDs, Start-/Endzeit,
-ASR-Rohtext und dem Text nach sicheren Glossarersetzungen.
+ASR-Rohtext, dem Text nach sicheren Glossarersetzungen und dem SHA-256 des
+zugehörigen Markdown-Transkripts.
 
 Die Zeitgrenzen lassen sich anschließend rein lesend auf Plausibilität prüfen:
 
@@ -333,6 +334,27 @@ Wahrheitsentscheid; niedrige oder teilweise Übereinstimmung bleibt eine
 Aufforderung zum Probehören. `--segment-id` kann mehrfach angegeben werden, um
 gezielt einzelne Stellen auszuwählen. Es erfolgt kein Drive-Upload und keine
 Veränderung des kanonischen Transkripts.
+
+Bestätigte Hörentscheidungen lassen sich anschließend schreibgeschützt zu
+einem Reparaturplan zusammenführen:
+
+```bash
+.venv/bin/python plan_transcript_repairs.py
+.venv/bin/python plan_transcript_repairs.py --drive-id DRIVE_ID --json
+```
+
+Neue Entscheidungen binden Kandidatenhash und Segment an den SHA-256 des
+Transkripts zum Entscheidungszeitpunkt. Der Planer vergleicht ihn mit der
+aktuellen lokalen Datei: `MATCHED` ist versionssicher, `MISMATCH` verweist auf
+eine inzwischen geänderte Datei und ältere Entscheidungen ohne Hash erscheinen
+als `UNVERIFIED`. Reine Grenzfehler werden als `NO_TEXT_CHANGE` ausgewiesen.
+Wortfehler, Auslassungen, Halluzinationen und sonstige bestätigte Textfehler
+werden mit hinterlegtem Korrekturtext als `CURATED_REPLACEMENT_AVAILABLE`
+ausgewiesen; ohne ihn bleiben sie `CURATION_REQUIRED`. Der Quellhash wird schon
+bei der Kandidatenregistrierung gebunden, vor der Entscheidung erneut geprüft
+und für die spätere Planprüfung gespeichert. Der Befehl öffnet die
+Pipeline-Datenbank ausschließlich lesend und verändert weder Transkript noch
+Pipeline-State oder Drive.
 
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -38,6 +39,10 @@ class SegmentMetadataTest(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["audio_file"], "Aufnahme #1.wav")
         self.assertEqual(payload["transcript_file"], "Aufnahme #1.md")
+        self.assertEqual(
+            payload["transcript_sha256"],
+            hashlib.sha256(self.transcript.read_bytes()).hexdigest(),
+        )
         self.assertEqual(payload["provider"], "local")
         self.assertEqual(payload["model"], "medium")
         self.assertEqual(payload["language"], "de")

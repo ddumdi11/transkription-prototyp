@@ -15,7 +15,11 @@ from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_s
                            setup_logging, stage_ready_file)
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
 from project_glossary import glossary_hotwords, glossary_prompt
-from quality_reviews import ensure_quality_state, sync_quality_candidates
+from quality_reviews import (
+    ensure_quality_state,
+    sync_quality_candidates,
+    transcript_sha256_for_drive,
+)
 from route_transcripts import CONFIG_PATH as ROUTING_CONFIG, load_config, plan_published
 from segment_metadata import SegmentMetadataError, load_segment_metadata
 
@@ -115,7 +119,13 @@ def log_segment_quality(
     try:
         payload = load_segment_metadata(path, expected_source_id=drive_id)
         candidates = find_suspicious_segments(payload)
-        sync_quality_candidates(db, drive_id, candidates)
+        sync_quality_candidates(
+            db,
+            drive_id,
+            candidates,
+            transcript_sha256=transcript_sha256_for_drive(db, drive_id),
+            segment_transcript_sha256=payload.get("transcript_sha256"),
+        )
     except Exception as exc:
         logger.exception("Job QUALITY CHECK FAILED id=%s: %s", drive_id, exc)
         return False

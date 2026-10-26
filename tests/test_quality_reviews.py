@@ -13,6 +13,10 @@ from quality_reviews import (
 )
 
 
+TRANSCRIPT_SHA256 = "a" * 64
+CHANGED_TRANSCRIPT_SHA256 = "b" * 64
+
+
 def candidate(text="Sehr viel Text in einem viel zu kurzen Segment."):
     return {
         "id": "segment-000001",
@@ -42,14 +46,27 @@ class QualityReviewsTest(unittest.TestCase):
 
     def test_sync_registers_pending_candidate_idempotently(self):
         item = candidate()
-        first = sync_quality_candidates(self.db, "drive-id", [item], now=1000)
-        second = sync_quality_candidates(self.db, "drive-id", [item], now=1100)
+        first = sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        second = sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1100,
+        )
 
         self.assertEqual(len(first), 1)
         self.assertEqual(len(second), 1)
         row = second[0]
         self.assertEqual(row["status"], "PENDING")
-        self.assertEqual(row["candidate_hash"], candidate_hash(item))
+        self.assertEqual(
+            row["candidate_hash"], candidate_hash(item, TRANSCRIPT_SHA256)
+        )
+        self.assertEqual(
+            row["candidate_transcript_sha256"], TRANSCRIPT_SHA256
+        )
         self.assertEqual(row["first_detected_at"], 1000)
         self.assertEqual(row["last_detected_at"], 1100)
         count = self.db.execute("SELECT COUNT(*) FROM quality_reviews").fetchone()[0]
@@ -57,20 +74,29 @@ class QualityReviewsTest(unittest.TestCase):
 
     def test_changed_candidate_supersedes_without_destroying_decision(self):
         original = candidate()
-        fingerprint = candidate_hash(original)
-        sync_quality_candidates(self.db, "drive-id", [original], now=1000)
+        fingerprint = candidate_hash(original, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [original],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
         decide_quality_review(
             self.db,
             "drive-id",
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["BOUNDARY_ERROR"],
             now=1010,
         )
 
         changed = candidate("Ein anderer Segmenttext mit ebenfalls hoher Textdichte.")
-        rows = sync_quality_candidates(self.db, "drive-id", [changed], now=1100)
+        rows = sync_quality_candidates(
+            self.db, "drive-id", [changed],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1100,
+        )
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], "PENDING")
@@ -85,8 +111,12 @@ class QualityReviewsTest(unittest.TestCase):
 
     def test_confirmation_is_exact_and_idempotent(self):
         item = candidate()
-        fingerprint = candidate_hash(item)
-        sync_quality_candidates(self.db, "drive-id", [item], now=1000)
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
 
         changed = decide_quality_review(
             self.db,
@@ -94,6 +124,7 @@ class QualityReviewsTest(unittest.TestCase):
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["WORD_ERROR", "BOUNDARY_ERROR"],
             note="Text vorhanden, Zeitgrenze falsch.",
             confirmed_text="Bestätigter Text",
@@ -106,6 +137,7 @@ class QualityReviewsTest(unittest.TestCase):
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["BOUNDARY_ERROR", "WORD_ERROR"],
             note="Text vorhanden, Zeitgrenze falsch.",
             confirmed_text="Bestätigter Text",
@@ -122,17 +154,23 @@ class QualityReviewsTest(unittest.TestCase):
             ["BOUNDARY_ERROR", "WORD_ERROR"],
         )
         self.assertEqual(row["decided_at"], 1100)
+        self.assertEqual(row["transcript_sha256"], TRANSCRIPT_SHA256)
 
     def test_divergent_second_decision_is_rejected(self):
         item = candidate()
-        fingerprint = candidate_hash(item)
-        sync_quality_candidates(self.db, "drive-id", [item], now=1000)
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
         decide_quality_review(
             self.db,
             "drive-id",
             "segment-000001",
             fingerprint,
             "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
             issue_types=["BOUNDARY_ERROR"],
             now=1100,
         )
@@ -144,14 +182,73 @@ class QualityReviewsTest(unittest.TestCase):
                 "segment-000001",
                 fingerprint,
                 "CONFIRMED",
+                transcript_sha256=TRANSCRIPT_SHA256,
                 issue_types=["OMISSION"],
                 now=1200,
             )
 
+    def test_decision_rejects_transcript_changed_since_registration(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+
+        with self.assertRaisesRegex(ValueError, "seit der Kandidatenregistrierung"):
+            decide_quality_review(
+                self.db,
+                "drive-id",
+                "segment-000001",
+                fingerprint,
+                "CONFIRMED",
+                transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+                issue_types=["BOUNDARY_ERROR"],
+                now=1100,
+            )
+
+        row = current_quality_reviews(self.db)[0]
+        self.assertEqual(row["status"], "PENDING")
+        self.assertIsNone(row["transcript_sha256"])
+
+        replacement = sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+            segment_transcript_sha256=CHANGED_TRANSCRIPT_SHA256, now=1200,
+        )[0]
+        self.assertNotEqual(replacement["candidate_hash"], fingerprint)
+        self.assertEqual(
+            replacement["candidate_transcript_sha256"],
+            CHANGED_TRANSCRIPT_SHA256,
+        )
+
+    def test_registration_rejects_stale_segment_metadata(self):
+        with self.assertRaisesRegex(
+            ValueError, "nicht zur aktuellen Transkriptversion"
+        ):
+            sync_quality_candidates(
+                self.db,
+                "drive-id",
+                [candidate()],
+                transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+                segment_transcript_sha256=TRANSCRIPT_SHA256,
+                now=1000,
+            )
+
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM quality_reviews"
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_dismissal_rejects_issue_types(self):
         item = candidate()
-        fingerprint = candidate_hash(item)
-        sync_quality_candidates(self.db, "drive-id", [item], now=1000)
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
 
         with self.assertRaisesRegex(ValueError, "keine Fehlerart"):
             decide_quality_review(
@@ -160,6 +257,7 @@ class QualityReviewsTest(unittest.TestCase):
                 "segment-000001",
                 fingerprint,
                 "DISMISSED",
+                transcript_sha256=TRANSCRIPT_SHA256,
                 issue_types=["BOUNDARY_ERROR"],
             )
 
@@ -170,12 +268,41 @@ class QualityReviewsTest(unittest.TestCase):
                 "segment-000001",
                 fingerprint,
                 "DISMISSED",
+                transcript_sha256=TRANSCRIPT_SHA256,
                 confirmed_text="Kein Fehler",
             )
 
+    def test_decision_rejects_invalid_transcript_hash(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            decide_quality_review(
+                self.db,
+                "drive-id",
+                "segment-000001",
+                fingerprint,
+                "CONFIRMED",
+                transcript_sha256="not-a-hash",
+                issue_types=["BOUNDARY_ERROR"],
+            )
+
     def test_empty_rescan_removes_candidate_from_current_view(self):
-        sync_quality_candidates(self.db, "drive-id", [candidate()], now=1000)
-        sync_quality_candidates(self.db, "drive-id", [], now=1100)
+        sync_quality_candidates(
+            self.db, "drive-id", [candidate()],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        sync_quality_candidates(
+            self.db, "drive-id", [],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1100,
+        )
 
         self.assertEqual(current_quality_reviews(self.db), [])
         row = self.db.execute("SELECT is_current FROM quality_reviews").fetchone()
