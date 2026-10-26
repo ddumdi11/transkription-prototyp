@@ -125,6 +125,12 @@ markiert. Abweichende Zweitentscheidungen werden abgelehnt. Ändert sich ein
 Kandidat nach einer erneuten Transkription, bleibt die frühere Entscheidung als
 Historie erhalten und die neue Fassung wird wieder `PENDING`.
 
+Bereits bestätigte Altfälle ohne gespeicherten Versionshash werden nicht
+stillschweigend übernommen. `bind_legacy_quality_reviews.py` prüft sie zunächst
+rein lesend gegen Veröffentlichungshash, Zeitfolge und unveränderten
+Segmentkandidaten. Die atomare Bindung benötigt anschließend ausdrücklich den
+exakten `plan_sha256` des unveränderten Dry-Runs.
+
 Diese Statusverwaltung verändert weder das kanonische Markdown-Transkript noch
 Audio- oder Drive-Dateien. `confirmed_text` und `speaker_intent` sind getrennte
 optionale Felder, damit tatsächlich Gehörtes nicht mit einer nachträglichen

@@ -356,6 +356,26 @@ und für die spätere Planprüfung gespeichert. Der Befehl öffnet die
 Pipeline-Datenbank ausschließlich lesend und verändert weder Transkript noch
 Pipeline-State oder Drive.
 
+Bestätigte Altfälle aus der Zeit vor dieser Versionsbindung lassen sich
+zunächst rein lesend prüfen:
+
+```bash
+.venv/bin/python bind_legacy_quality_reviews.py
+```
+
+Nur wenn aktuelles Transkript, veröffentlichter Hash, Segmentkandidat und
+Zeitfolge widerspruchsfrei zusammenpassen, erscheint `ELIGIBLE`. Eine Bindung
+erfordert anschließend den exakt angezeigten Plan-Hash:
+
+```bash
+.venv/bin/python bind_legacy_quality_reviews.py \
+  --confirm-plan-sha256 SHA256_AUS_DEM_DRY_RUN
+```
+
+Die bestätigte Ausführung aktualisiert atomar ausschließlich die
+Versionsbindung und den versionsgebundenen Kandidatenfingerabdruck in der
+lokalen QA-Datenbank. Transkripte, Segmentdateien und Drive bleiben unverändert.
+
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:
 
