@@ -158,6 +158,11 @@ def assess_quality(
         payload = load_segment_metadata(sidecar, expected_source_id=drive_id)
         candidates = find_suspicious_segments(payload)
         transcript_sha256 = transcript_sha256_for_drive(db, drive_id)
+        segment_transcript_sha256 = payload.get("transcript_sha256")
+        if segment_transcript_sha256 != transcript_sha256:
+            raise ValueError(
+                "Segmentdatei gehört nicht zur aktuellen Transkriptversion"
+            )
     except (OSError, SegmentMetadataError, ValueError) as exc:
         return {
             "status": "METADATA_INVALID",
@@ -175,7 +180,7 @@ def assess_quality(
     detected_keys = {
         (
             str(candidate["id"]),
-            candidate_hash(candidate, transcript_sha256),
+            candidate_hash(candidate, segment_transcript_sha256),
         )
         for candidate in candidates
     }

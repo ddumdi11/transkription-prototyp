@@ -262,7 +262,8 @@ python transcribe.py input
 Die fertigen Transkripte findest du in `output/` als `.md`-Dateien. Mit
 `--write-segments` schreibt der lokale Provider zusätzlich je Aufnahme eine
 maschinenlesbare Datei `<Name>.segments.json` mit Segment-IDs, Start-/Endzeit,
-ASR-Rohtext und dem Text nach sicheren Glossarersetzungen.
+ASR-Rohtext, dem Text nach sicheren Glossarersetzungen und dem SHA-256 des
+zugehörigen Markdown-Transkripts.
 
 Die Zeitgrenzen lassen sich anschließend rein lesend auf Plausibilität prüfen:
 

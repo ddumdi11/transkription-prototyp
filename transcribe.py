@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -368,6 +369,14 @@ def write_transcript(
     return out_path
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def write_segment_metadata(
     audio_path: Path,
     transcript_path: Path,
@@ -407,6 +416,7 @@ def write_segment_metadata(
         "schema_version": 1,
         "audio_file": audio_path.name,
         "transcript_file": transcript_path.name,
+        "transcript_sha256": _sha256_file(transcript_path),
         "provider": provider_name,
         "model": model_name,
         "language": language,

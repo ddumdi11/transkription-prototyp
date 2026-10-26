@@ -30,6 +30,19 @@ def validate_segment_payload(
             f"Segmentdaten gehören nicht zu Drive-ID {expected_source_id}: {path}"
         )
 
+    transcript_sha256 = payload.get("transcript_sha256")
+    if transcript_sha256 is not None and (
+        not isinstance(transcript_sha256, str)
+        or len(transcript_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in transcript_sha256
+        )
+    ):
+        raise SegmentMetadataError(
+            f"Segmentdaten enthalten ungültigen Transkript-SHA-256: {path}"
+        )
+
     segments = payload.get("segments")
     if not isinstance(segments, list):
         raise SegmentMetadataError(

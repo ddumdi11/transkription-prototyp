@@ -21,9 +21,10 @@ faster-whisper gelieferten Segmenttexte und Zeitgrenzen. Mit
 `--write-segments` entsteht neben dem Markdown eine Begleitdatei
 `<Name>.segments.json`. Sie enthält stabile Segment-IDs, Start-/Endzeit, den
 unbearbeiteten ASR-Text und separat den Text nach sicheren
-Glossarersetzungen. Die automatische Inbox-Pipeline aktiviert diese Ausgabe
-und trägt die eindeutige Drive-ID als `source_id` ein. Sie akzeptiert einen Job
-nur mit vorhandener Segmentdatei als abgeschlossen.
+Glossarersetzungen. Der eingebettete `transcript_sha256` bindet sie an genau
+die gleichzeitig erzeugte Markdown-Fassung. Die automatische Inbox-Pipeline
+aktiviert diese Ausgabe und trägt die eindeutige Drive-ID als `source_id` ein.
+Sie akzeptiert einen Job nur mit vorhandener Segmentdatei als abgeschlossen.
 
 ## Segmentzeiten rein lesend prüfen
 

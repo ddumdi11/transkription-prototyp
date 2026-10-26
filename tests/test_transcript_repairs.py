@@ -82,6 +82,7 @@ class TranscriptRepairPlanTest(unittest.TestCase):
             drive_id,
             current,
             transcript_sha256=transcript_sha256,
+            segment_transcript_sha256=transcript_sha256,
             now=1020,
         )
         if status == "CONFIRMED":

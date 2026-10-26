@@ -48,11 +48,13 @@ class QualityReviewsTest(unittest.TestCase):
         item = candidate()
         first = sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
         second = sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1100,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1100,
         )
 
         self.assertEqual(len(first), 1)
@@ -75,7 +77,8 @@ class QualityReviewsTest(unittest.TestCase):
         fingerprint = candidate_hash(original, TRANSCRIPT_SHA256)
         sync_quality_candidates(
             self.db, "drive-id", [original],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
         decide_quality_review(
             self.db,
@@ -91,7 +94,8 @@ class QualityReviewsTest(unittest.TestCase):
         changed = candidate("Ein anderer Segmenttext mit ebenfalls hoher Textdichte.")
         rows = sync_quality_candidates(
             self.db, "drive-id", [changed],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1100,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1100,
         )
 
         self.assertEqual(len(rows), 1)
@@ -110,7 +114,8 @@ class QualityReviewsTest(unittest.TestCase):
         fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
         sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
 
         changed = decide_quality_review(
@@ -156,7 +161,8 @@ class QualityReviewsTest(unittest.TestCase):
         fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
         sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
         decide_quality_review(
             self.db,
@@ -186,7 +192,8 @@ class QualityReviewsTest(unittest.TestCase):
         fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
         sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
 
         with self.assertRaisesRegex(ValueError, "seit der Kandidatenregistrierung"):
@@ -207,7 +214,8 @@ class QualityReviewsTest(unittest.TestCase):
 
         replacement = sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=CHANGED_TRANSCRIPT_SHA256, now=1200,
+            transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+            segment_transcript_sha256=CHANGED_TRANSCRIPT_SHA256, now=1200,
         )[0]
         self.assertNotEqual(replacement["candidate_hash"], fingerprint)
         self.assertEqual(
@@ -215,12 +223,31 @@ class QualityReviewsTest(unittest.TestCase):
             CHANGED_TRANSCRIPT_SHA256,
         )
 
+    def test_registration_rejects_stale_segment_metadata(self):
+        with self.assertRaisesRegex(
+            ValueError, "nicht zur aktuellen Transkriptversion"
+        ):
+            sync_quality_candidates(
+                self.db,
+                "drive-id",
+                [candidate()],
+                transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+                segment_transcript_sha256=TRANSCRIPT_SHA256,
+                now=1000,
+            )
+
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM quality_reviews"
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_dismissal_rejects_issue_types(self):
         item = candidate()
         fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
         sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
 
         with self.assertRaisesRegex(ValueError, "keine Fehlerart"):
@@ -250,7 +277,8 @@ class QualityReviewsTest(unittest.TestCase):
         fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
         sync_quality_candidates(
             self.db, "drive-id", [item],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
 
         with self.assertRaisesRegex(ValueError, "SHA-256"):
@@ -267,11 +295,13 @@ class QualityReviewsTest(unittest.TestCase):
     def test_empty_rescan_removes_candidate_from_current_view(self):
         sync_quality_candidates(
             self.db, "drive-id", [candidate()],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
         )
         sync_quality_candidates(
             self.db, "drive-id", [],
-            transcript_sha256=TRANSCRIPT_SHA256, now=1100,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1100,
         )
 
         self.assertEqual(current_quality_reviews(self.db), [])

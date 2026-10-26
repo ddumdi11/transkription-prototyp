@@ -58,7 +58,9 @@ und nicht wiederholt. Dubletten werden nie verarbeitet. Audio und Transkripte
 bleiben zunächst lokal unter `staging/`; Drive wird nicht verändert. Neben dem
 Markdown erzeugt die lokale Engine `<Name>.segments.json` mit Zeitgrenzen und
 Rohtext jedes faster-whisper-Segments sowie der eindeutigen Drive-ID als
-`source_id`. Ein Job wird nur `DONE`, wenn beide Dateien geschrieben wurden.
+`source_id`. Ihr `transcript_sha256` bindet die Segmentdaten an die gleichzeitig
+erzeugte Markdown-Fassung. Ein Job wird nur `DONE`, wenn beide Dateien
+geschrieben wurden.
 
 Die lokalen Zeitgrenzen können mit `analyze_segment_quality.py` anschließend
 rein lesend geprüft werden. Das Werkzeug kombiniert Textdichte und
@@ -93,8 +95,9 @@ Hörprüfungen:
 .venv/bin/python quality_reviews.py --status PENDING
 ```
 
-Bereits vorhandene Segmentdateien aus der Zeit vor dieser Erweiterung können
-ausdrücklich registriert werden:
+Bereits vorhandene Segmentdateien mit eingebettetem `transcript_sha256` können
+ausdrücklich registriert werden. Ältere Begleitdateien ohne diese Bindung müssen
+zuvor gemeinsam mit dem Transkript neu erzeugt werden:
 
 ```bash
 .venv/bin/python quality_reviews.py \

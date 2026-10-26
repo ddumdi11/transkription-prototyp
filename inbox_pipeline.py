@@ -124,6 +124,7 @@ def log_segment_quality(
             drive_id,
             candidates,
             transcript_sha256=transcript_sha256_for_drive(db, drive_id),
+            segment_transcript_sha256=payload.get("transcript_sha256"),
         )
     except Exception as exc:
         logger.exception("Job QUALITY CHECK FAILED id=%s: %s", drive_id, exc)

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -182,12 +183,15 @@ class InboxPipelineTest(unittest.TestCase):
                     validate_segment_metadata(path, "drive-id")
 
     def test_quality_log_reports_text_only_timestamp_candidates(self):
-        self.add_done_transcript()
+        transcript = self.add_done_transcript()
         path = Path(self.temp.name) / "segments.json"
         path.write_text(
             json.dumps({
                 "schema_version": 1,
                 "source_id": "drive-id",
+                "transcript_sha256": hashlib.sha256(
+                    transcript.read_bytes()
+                ).hexdigest(),
                 "segments": [
                     {
                         "id": "segment-000001",
@@ -227,12 +231,15 @@ class InboxPipelineTest(unittest.TestCase):
         self.assertEqual((row["status"], row["is_current"]), ("PENDING", 1))
 
     def test_quality_log_treats_empty_transcript_as_nonblocking_state(self):
-        self.add_done_transcript()
+        transcript = self.add_done_transcript()
         path = Path(self.temp.name) / "segments.json"
         path.write_text(
             json.dumps({
                 "schema_version": 1,
                 "source_id": "drive-id",
+                "transcript_sha256": hashlib.sha256(
+                    transcript.read_bytes()
+                ).hexdigest(),
                 "segments": [],
             }),
             encoding="utf-8",

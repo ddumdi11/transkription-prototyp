@@ -153,12 +153,19 @@ def sync_quality_candidates(
     candidates: Iterable[dict[str, Any]],
     *,
     transcript_sha256: str,
+    segment_transcript_sha256: str,
     now: float | None = None,
 ) -> list[sqlite3.Row]:
     """Install the current detector results while retaining decision history."""
     if not isinstance(drive_id, str) or not drive_id.strip():
         raise ValueError("Drive-ID darf nicht leer sein")
-    source_hash = _validate_transcript_sha256(transcript_sha256)
+    current_hash = _validate_transcript_sha256(transcript_sha256)
+    source_hash = _validate_transcript_sha256(segment_transcript_sha256)
+    if source_hash != current_hash:
+        raise ValueError(
+            "Segmentdatei gehört nicht zur aktuellen Transkriptversion; "
+            "Segmentdatei neu erzeugen"
+        )
     ensure_quality_state(db)
     moment = time.time() if now is None else now
     prepared: list[tuple[dict[str, Any], str]] = []
@@ -445,6 +452,9 @@ def main(argv: list[str] | None = None) -> int:
                             source_id,
                             find_suspicious_segments(payload),
                             transcript_sha256=transcript_sha256,
+                            segment_transcript_sha256=payload.get(
+                                "transcript_sha256"
+                            ),
                         )
                         print(f"Registriert id={source_id}: {len(rows)} aktuelle Kandidaten")
                 else:
