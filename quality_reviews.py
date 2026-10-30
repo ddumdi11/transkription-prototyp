@@ -33,8 +33,14 @@ TEXT_ISSUES = {"WORD_ERROR", "OMISSION", "HALLUCINATION", "OTHER"}
 
 def ensure_quality_state(db: sqlite3.Connection) -> None:
     """Create version-1 persistent QA state without changing transcript data."""
-    db.execute(
-        """CREATE TABLE IF NOT EXISTS quality_reviews (
+    # This helper has always committed its work.  End a caller transaction first
+    # so BEGIN IMMEDIATE can serialize schema inspection and migration.
+    if db.in_transaction:
+        db.commit()
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS quality_reviews (
             drive_id TEXT NOT NULL,
             segment_id TEXT NOT NULL,
             candidate_hash TEXT NOT NULL,
@@ -59,34 +65,38 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
             decided_at REAL,
             PRIMARY KEY (drive_id, segment_id, candidate_hash)
         )"""
-    )
-    columns = {
-        str(row[1]) for row in db.execute("PRAGMA table_info(quality_reviews)")
-    }
-    if "transcript_sha256" not in columns:
-        db.execute(
-            "ALTER TABLE quality_reviews ADD COLUMN transcript_sha256 TEXT"
         )
-    if "candidate_transcript_sha256" not in columns:
+        columns = {
+            str(row[1]) for row in db.execute("PRAGMA table_info(quality_reviews)")
+        }
+        if "transcript_sha256" not in columns:
+            db.execute(
+                "ALTER TABLE quality_reviews ADD COLUMN transcript_sha256 TEXT"
+            )
+        if "candidate_transcript_sha256" not in columns:
+            db.execute(
+                "ALTER TABLE quality_reviews "
+                "ADD COLUMN candidate_transcript_sha256 TEXT"
+            )
+        if "curation_action" not in columns:
+            db.execute(
+                "ALTER TABLE quality_reviews ADD COLUMN curation_action TEXT"
+            )
+        if "curated_at" not in columns:
+            db.execute("ALTER TABLE quality_reviews ADD COLUMN curated_at REAL")
         db.execute(
-            "ALTER TABLE quality_reviews "
-            "ADD COLUMN candidate_transcript_sha256 TEXT"
+            """CREATE UNIQUE INDEX IF NOT EXISTS quality_reviews_current_idx
+               ON quality_reviews(drive_id, segment_id) WHERE is_current = 1"""
         )
-    if "curation_action" not in columns:
         db.execute(
-            "ALTER TABLE quality_reviews ADD COLUMN curation_action TEXT"
+            """CREATE INDEX IF NOT EXISTS quality_reviews_status_idx
+               ON quality_reviews(status, is_current, first_detected_at)"""
         )
-    if "curated_at" not in columns:
-        db.execute("ALTER TABLE quality_reviews ADD COLUMN curated_at REAL")
-    db.execute(
-        """CREATE UNIQUE INDEX IF NOT EXISTS quality_reviews_current_idx
-           ON quality_reviews(drive_id, segment_id) WHERE is_current = 1"""
-    )
-    db.execute(
-        """CREATE INDEX IF NOT EXISTS quality_reviews_status_idx
-           ON quality_reviews(status, is_current, first_detected_at)"""
-    )
-    db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    else:
+        db.commit()
 
 
 def _candidate_material(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -462,6 +472,23 @@ def curate_quality_review(
             ),
         )
         if cursor.rowcount != 1:
+            concurrent = db.execute(
+                """SELECT status, curation_action, confirmed_text,
+                          candidate_transcript_sha256, transcript_sha256
+                   FROM quality_reviews
+                   WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                     AND is_current=1""",
+                (drive_id, segment_id, fingerprint),
+            ).fetchone()
+            if (
+                concurrent is not None
+                and concurrent["status"] == "CONFIRMED"
+                and concurrent["curation_action"] == action
+                and concurrent["confirmed_text"] == confirmed_text
+                and concurrent["candidate_transcript_sha256"] == current_hash
+                and concurrent["transcript_sha256"] == current_hash
+            ):
+                return False
             raise RuntimeError("QA-Kuratierung wurde gleichzeitig verändert")
     return True
 
@@ -520,9 +547,11 @@ def _validate_operation(args: argparse.Namespace) -> None:
             "Entscheiden und Kuratieren erfordern --drive-id, --segment-id "
             "und --candidate-hash"
         )
-    if not deciding and any(
-        (args.issue, args.note, args.confirmed_text, args.speaker_intent)
-    ):
+    decision_details_supplied = bool(args.issue) or any(
+        value is not None
+        for value in (args.note, args.confirmed_text, args.speaker_intent)
+    )
+    if not deciding and decision_details_supplied:
         raise ValueError("Entscheidungsdetails erfordern --confirm oder --dismiss")
     if args.register_segments and (deciding or curating):
         raise ValueError(

@@ -5,11 +5,13 @@ from pathlib import Path
 
 from inbox_watcher import open_state
 from quality_reviews import (
+    _validate_operation,
     candidate_hash,
     current_quality_reviews,
     curate_quality_review,
     decide_quality_review,
     ensure_quality_state,
+    parse_args,
     sync_quality_candidates,
 )
 
@@ -226,6 +228,64 @@ class QualityReviewsTest(unittest.TestCase):
                 transcript_sha256=TRANSCRIPT_SHA256,
                 confirmed_text="Anderer Text.", now=1400,
             )
+
+    def test_concurrent_identical_curation_is_idempotent(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["OMISSION"], now=1100,
+        )
+
+        class RacingConnection:
+            def __init__(self, inner):
+                self.inner = inner
+                self.injected = False
+
+            def execute(self, sql, parameters=()):
+                if (
+                    not self.injected
+                    and "SET curation_action=?" in sql
+                ):
+                    self.injected = True
+                    self.inner.execute(
+                        """UPDATE quality_reviews
+                           SET curation_action='REPLACE',
+                               confirmed_text='Vollständiger bestätigter Text.',
+                               curated_at=1150
+                           WHERE drive_id='drive-id'
+                             AND segment_id='segment-000001'"""
+                    )
+                return self.inner.execute(sql, parameters)
+
+            def __enter__(self):
+                self.inner.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.inner.__exit__(*args)
+
+        changed = curate_quality_review(
+            RacingConnection(self.db),
+            "drive-id",
+            "segment-000001",
+            fingerprint,
+            "REPLACE",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            confirmed_text="Vollständiger bestätigter Text.",
+            now=1200,
+        )
+
+        self.assertFalse(changed)
+        row = current_quality_reviews(self.db)[0]
+        self.assertEqual(row["curation_action"], "REPLACE")
+        self.assertEqual(row["curated_at"], 1150)
 
     def test_delete_curation_requires_confirmed_hallucination(self):
         item = candidate()
@@ -450,6 +510,13 @@ class QualityReviewsTest(unittest.TestCase):
         self.assertEqual(current_quality_reviews(self.db), [])
         row = self.db.execute("SELECT is_current FROM quality_reviews").fetchone()
         self.assertEqual(row["is_current"], 0)
+
+    def test_empty_decision_details_are_rejected_outside_decision_mode(self):
+        for option in ("--note", "--confirmed-text", "--speaker-intent"):
+            with self.subTest(option=option):
+                args = parse_args([option, ""])
+                with self.assertRaisesRegex(ValueError, "Entscheidungsdetails"):
+                    _validate_operation(args)
 
 
 if __name__ == "__main__":

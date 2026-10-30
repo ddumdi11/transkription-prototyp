@@ -235,6 +235,32 @@ class TranscriptRepairPlanTest(unittest.TestCase):
             plan["recordings"][0]["status"], "CURATED_CHANGES_AVAILABLE"
         )
 
+    def test_uncurated_review_takes_precedence_over_curated_deletion(self):
+        self.add_review("one", "segment-000001", ["HALLUCINATION"])
+        row = self.db.execute(
+            "SELECT candidate_hash FROM quality_reviews "
+            "WHERE drive_id='one' AND segment_id='segment-000001'"
+        ).fetchone()
+        transcript_sha256 = transcript_sha256_for_drive(self.db, "one")
+        curate_quality_review(
+            self.db,
+            "one",
+            "segment-000001",
+            row["candidate_hash"],
+            "DELETE",
+            transcript_sha256=transcript_sha256,
+            now=1040,
+        )
+        self.add_review("one", "segment-000002", ["OMISSION"])
+
+        plan = build_repair_plan(self.db)
+
+        self.assertEqual(plan["recordings"][0]["status"], "CURATION_REQUIRED")
+        self.assertEqual(
+            {review["action"] for review in plan["recordings"][0]["reviews"]},
+            {"CURATED_DELETION_AVAILABLE", "CURATION_REQUIRED"},
+        )
+
     def test_legacy_decision_without_hash_is_unverified(self):
         self.add_review("one", "segment-000001", ["BOUNDARY_ERROR"])
         self.db.execute(
