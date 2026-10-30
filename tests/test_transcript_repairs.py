@@ -10,6 +10,7 @@ from plan_transcript_repairs import build_repair_plan, main
 from publish_transcripts import prepare_publish_state
 from quality_reviews import (
     candidate_hash,
+    curate_quality_review,
     decide_quality_review,
     ensure_quality_state,
     sync_quality_candidates,
@@ -101,7 +102,12 @@ class TranscriptRepairPlanTest(unittest.TestCase):
         self.db.commit()
 
     def test_classifies_boundary_curation_and_available_text(self):
-        self.add_review("one", "segment-000001", ["BOUNDARY_ERROR"])
+        self.add_review(
+            "one",
+            "segment-000001",
+            ["BOUNDARY_ERROR"],
+            confirmed_text="Bestätigter Belegtext ohne Reparaturwirkung",
+        )
         self.add_review("two", "segment-000001", ["OMISSION"])
         self.add_review(
             "three",
@@ -116,6 +122,7 @@ class TranscriptRepairPlanTest(unittest.TestCase):
         self.assertEqual(
             plan["summary"]["review_action_counts"],
             {
+                "CURATED_DELETION_AVAILABLE": 0,
                 "CURATED_REPLACEMENT_AVAILABLE": 1,
                 "CURATION_REQUIRED": 1,
                 "NO_TEXT_CHANGE": 1,
@@ -124,7 +131,7 @@ class TranscriptRepairPlanTest(unittest.TestCase):
         statuses = {row["drive_id"]: row["status"] for row in plan["recordings"]}
         self.assertEqual(statuses["one"], "NO_TEXT_CHANGE")
         self.assertEqual(statuses["two"], "CURATION_REQUIRED")
-        self.assertEqual(statuses["three"], "CURATED_REPLACEMENT_AVAILABLE")
+        self.assertEqual(statuses["three"], "CURATED_CHANGES_AVAILABLE")
         self.assertEqual(len(plan["recordings"][0]["transcript_sha256"]), 64)
         self.assertEqual(
             plan["summary"]["review_version_counts"],
@@ -200,6 +207,58 @@ class TranscriptRepairPlanTest(unittest.TestCase):
         self.assertEqual(
             plan["recordings"][0]["reviews"][0]["transcript_version_status"],
             "MISMATCH",
+        )
+
+    def test_explicit_deletion_is_distinct_from_empty_replacement(self):
+        self.add_review("one", "segment-000001", ["HALLUCINATION"])
+        row = self.db.execute(
+            "SELECT candidate_hash FROM quality_reviews WHERE drive_id='one'"
+        ).fetchone()
+        transcript_sha256 = transcript_sha256_for_drive(self.db, "one")
+        curate_quality_review(
+            self.db,
+            "one",
+            "segment-000001",
+            row["candidate_hash"],
+            "DELETE",
+            transcript_sha256=transcript_sha256,
+            now=1040,
+        )
+
+        plan = build_repair_plan(self.db)
+
+        review = plan["recordings"][0]["reviews"][0]
+        self.assertEqual(review["action"], "CURATED_DELETION_AVAILABLE")
+        self.assertEqual(review["curation_action"], "DELETE")
+        self.assertIsNone(review["confirmed_text"])
+        self.assertEqual(
+            plan["recordings"][0]["status"], "CURATED_CHANGES_AVAILABLE"
+        )
+
+    def test_uncurated_review_takes_precedence_over_curated_deletion(self):
+        self.add_review("one", "segment-000001", ["HALLUCINATION"])
+        row = self.db.execute(
+            "SELECT candidate_hash FROM quality_reviews "
+            "WHERE drive_id='one' AND segment_id='segment-000001'"
+        ).fetchone()
+        transcript_sha256 = transcript_sha256_for_drive(self.db, "one")
+        curate_quality_review(
+            self.db,
+            "one",
+            "segment-000001",
+            row["candidate_hash"],
+            "DELETE",
+            transcript_sha256=transcript_sha256,
+            now=1040,
+        )
+        self.add_review("one", "segment-000002", ["OMISSION"])
+
+        plan = build_repair_plan(self.db)
+
+        self.assertEqual(plan["recordings"][0]["status"], "CURATION_REQUIRED")
+        self.assertEqual(
+            {review["action"] for review in plan["recordings"][0]["reviews"]},
+            {"CURATED_DELETION_AVAILABLE", "CURATION_REQUIRED"},
         )
 
     def test_legacy_decision_without_hash_is_unverified(self):
