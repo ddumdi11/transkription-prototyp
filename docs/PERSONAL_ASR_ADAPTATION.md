@@ -132,7 +132,14 @@ Transkriptdatei. Er unterscheidet reine Segmentgrenzfehler ohne nötige
 Textänderung von bestätigten Wortfehlern, Auslassungen oder Halluzinationen.
 Ist für einen Textfehler bereits ein kuratierter Ersatztext vorhanden, lautet
 die Aktion `CURATED_REPLACEMENT_AVAILABLE`; fehlt er noch, bleibt sie
-ausdrücklich `CURATION_REQUIRED`. Schon bei der Kandidatenregistrierung wird
+ausdrücklich `CURATION_REQUIRED`. Nachträgliche Kuratierung bleibt eine eigene
+Operation: `quality_reviews.py --curate-replacement TEXT` speichert einen
+bestätigten Ersatztext, während `--curate-delete` eine bestätigte Halluzination
+ausdrücklich als `CURATED_DELETION_AVAILABLE` kennzeichnet. Beide Varianten
+erfordern Drive-ID, Segment-ID und Kandidatenhash, sind bei identischer
+Wiederholung idempotent und lehnen Konflikte oder abweichende
+Transkriptversionen ab. Sie verändern weder Transkript noch Drive.
+Schon bei der Kandidatenregistrierung wird
 der SHA-256 des Quelltranskripts gebunden. Eine Entscheidung wird nur
 angenommen, solange die gegenwärtige Datei noch genau dieser Version entspricht,
 und speichert denselben Hash erneut. Der Planer vergleicht ihn später mit der

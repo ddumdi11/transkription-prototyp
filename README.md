@@ -350,7 +350,26 @@ eine inzwischen geänderte Datei und ältere Entscheidungen ohne Hash erscheinen
 als `UNVERIFIED`. Reine Grenzfehler werden als `NO_TEXT_CHANGE` ausgewiesen.
 Wortfehler, Auslassungen, Halluzinationen und sonstige bestätigte Textfehler
 werden mit hinterlegtem Korrekturtext als `CURATED_REPLACEMENT_AVAILABLE`
-ausgewiesen; ohne ihn bleiben sie `CURATION_REQUIRED`. Der Quellhash wird schon
+ausgewiesen; ohne ihn bleiben sie `CURATION_REQUIRED`. Bereits bestätigte
+Entscheidungen lassen sich getrennt und versionsgebunden kuratieren:
+
+```bash
+.venv/bin/python quality_reviews.py \
+  --drive-id DRIVE_ID --segment-id SEGMENT_ID \
+  --candidate-hash KANDIDATEN_HASH \
+  --curate-replacement "Vollständiger bestätigter Text"
+
+.venv/bin/python quality_reviews.py \
+  --drive-id DRIVE_ID --segment-id SEGMENT_ID \
+  --candidate-hash KANDIDATEN_HASH --curate-delete
+```
+
+`--curate-delete` ist eine ausdrückliche Löschentscheidung für eine bestätigte
+Halluzination und wird im Plan als `CURATED_DELETION_AVAILABLE` geführt. Eine
+identische Wiederholung ist erlaubt; eine abweichende Zweitkuratierung oder eine
+inzwischen veränderte Transkriptversion wird abgelehnt. Beide Operationen
+ändern ausschließlich den lokalen QA-State, niemals Transkript oder Drive.
+Der Quellhash wird schon
 bei der Kandidatenregistrierung gebunden, vor der Entscheidung erneut geprüft
 und für die spätere Planprüfung gespeichert. Der Befehl öffnet die
 Pipeline-Datenbank ausschließlich lesend und verändert weder Transkript noch

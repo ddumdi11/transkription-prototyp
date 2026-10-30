@@ -20,6 +20,12 @@ TEXT_ISSUES = {"WORD_ERROR", "OMISSION", "HALLUCINATION", "OTHER"}
 REPAIR_ACTIONS = {
     "NO_TEXT_CHANGE",
     "CURATED_REPLACEMENT_AVAILABLE",
+    "CURATED_DELETION_AVAILABLE",
+    "CURATION_REQUIRED",
+}
+RECORDING_STATUSES = {
+    "NO_TEXT_CHANGE",
+    "CURATED_CHANGES_AVAILABLE",
     "CURATION_REQUIRED",
 }
 
@@ -32,7 +38,7 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _require_tables(db: sqlite3.Connection) -> bool:
+def _require_tables(db: sqlite3.Connection) -> tuple[bool, bool]:
     required = {"quality_reviews", "transcription_jobs", "published_transcripts"}
     rows = db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
@@ -48,7 +54,10 @@ def _require_tables(db: sqlite3.Connection) -> bool:
     quality_columns = {
         str(row[1]) for row in db.execute("PRAGMA table_info(quality_reviews)")
     }
-    return "transcript_sha256" in quality_columns
+    return (
+        "transcript_sha256" in quality_columns,
+        "curation_action" in quality_columns,
+    )
 
 
 def _string_list(raw: object, label: str, *, allow_empty: bool) -> list[str]:
@@ -68,11 +77,34 @@ def _string_list(raw: object, label: str, *, allow_empty: bool) -> list[str]:
     return values
 
 
-def _repair_action(issue_types: set[str], confirmed_text: object) -> str:
+def _repair_action(
+    issue_types: set[str],
+    confirmed_text: object,
+    curation_action: object,
+) -> str:
     if not issue_types & TEXT_ISSUES:
+        if curation_action is not None:
+            raise ValueError("Reiner Grenzfehler trägt unerwartete Textkuratierung")
+        # Older hearing decisions may carry a confirmed excerpt as evidence even
+        # though only the segment boundary was wrong.  Without an explicit
+        # curation action that text must never become a replacement implicitly.
         return "NO_TEXT_CHANGE"
+    if curation_action == "DELETE":
+        if confirmed_text is not None:
+            raise ValueError("DELETE-Kuratierung trägt unerwarteten Ersatztext")
+        if "HALLUCINATION" not in issue_types:
+            raise ValueError("DELETE-Kuratierung erfordert HALLUCINATION")
+        return "CURATED_DELETION_AVAILABLE"
+    if curation_action == "REPLACE":
+        if not isinstance(confirmed_text, str) or not confirmed_text.strip():
+            raise ValueError("REPLACE-Kuratierung benötigt einen Ersatztext")
+        return "CURATED_REPLACEMENT_AVAILABLE"
+    if curation_action is not None:
+        raise ValueError(f"Unbekannte Kuratierungsaktion: {curation_action}")
     if isinstance(confirmed_text, str) and confirmed_text.strip():
         return "CURATED_REPLACEMENT_AVAILABLE"
+    if confirmed_text is not None:
+        raise ValueError("Kuratierter Ersatztext darf nicht leer sein")
     return "CURATION_REQUIRED"
 
 
@@ -80,8 +112,11 @@ def _recording_status(actions: Iterable[str]) -> str:
     present = set(actions)
     if "CURATION_REQUIRED" in present:
         return "CURATION_REQUIRED"
-    if "CURATED_REPLACEMENT_AVAILABLE" in present:
-        return "CURATED_REPLACEMENT_AVAILABLE"
+    if present & {
+        "CURATED_REPLACEMENT_AVAILABLE",
+        "CURATED_DELETION_AVAILABLE",
+    }:
+        return "CURATED_CHANGES_AVAILABLE"
     return "NO_TEXT_CHANGE"
 
 
@@ -89,6 +124,7 @@ def _confirmed_rows(
     db: sqlite3.Connection,
     selected_ids: set[str] | None,
     has_transcript_binding: bool,
+    has_curation_action: bool,
 ) -> list[sqlite3.Row]:
     clauses = ["q.is_current=1", "q.status='CONFIRMED'"]
     values: list[str] = []
@@ -99,8 +135,10 @@ def _confirmed_rows(
     binding = (
         "q.transcript_sha256" if has_transcript_binding else "NULL"
     )
+    curation = "q.curation_action" if has_curation_action else "NULL"
     return list(db.execute(
         f"""SELECT q.*, {binding} AS decision_transcript_sha256,
+                   {curation} AS repair_curation_action,
                    j.transcript_path,
                    p.remote_path, p.remote_id, p.published_at
             FROM quality_reviews q
@@ -116,11 +154,16 @@ def build_repair_plan(
     db: sqlite3.Connection, selected_ids: set[str] | None = None
 ) -> dict[str, Any]:
     """Build a deterministic repair plan from current confirmed QA rows."""
-    has_transcript_binding = _require_tables(db)
+    has_transcript_binding, has_curation_action = _require_tables(db)
     requested = set(selected_ids or ())
     if any(not isinstance(value, str) or not value.strip() for value in requested):
         raise ValueError("Drive-ID darf nicht leer sein")
-    rows = _confirmed_rows(db, requested or None, has_transcript_binding)
+    rows = _confirmed_rows(
+        db,
+        requested or None,
+        has_transcript_binding,
+        has_curation_action,
+    )
     found_ids = {str(row["drive_id"]) for row in rows}
     missing_ids = sorted(requested - found_ids)
     if missing_ids:
@@ -162,7 +205,11 @@ def build_repair_plan(
             or float(end) < float(start)
         ):
             raise ValueError(f"Ungültige Segmentzeit für {drive_id}/{row['segment_id']}")
-        action = _repair_action(set(issue_list), row["confirmed_text"])
+        action = _repair_action(
+            set(issue_list),
+            row["confirmed_text"],
+            row["repair_curation_action"],
+        )
         action_counts[action] += 1
 
         transcript_value = row["transcript_path"]
@@ -219,6 +266,7 @@ def build_repair_plan(
             "issue_types": issue_list,
             "note": row["note"],
             "confirmed_text": row["confirmed_text"],
+            "curation_action": row["repair_curation_action"],
             "speaker_intent": row["speaker_intent"],
             "decision_transcript_sha256": decision_hash,
             "transcript_version_status": version_status,
@@ -226,7 +274,7 @@ def build_repair_plan(
         })
 
     recordings = list(grouped.values())
-    recording_counts = {action: 0 for action in sorted(REPAIR_ACTIONS)}
+    recording_counts = {status: 0 for status in sorted(RECORDING_STATUSES)}
     review_version_counts = {
         status: 0 for status in ("MATCHED", "MISMATCH", "UNVERIFIED")
     }
@@ -249,7 +297,7 @@ def build_repair_plan(
         recording["transcript_version_status"] = version_status
         recording_version_counts[version_status] += 1
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_type": "confirmed_transcript_repair_dry_run",
         "summary": {
             "recording_count": len(recordings),

@@ -27,6 +27,8 @@ ISSUE_TYPES = {
     "HALLUCINATION",
     "OTHER",
 }
+CURATION_ACTIONS = {"REPLACE", "DELETE"}
+TEXT_ISSUES = {"WORD_ERROR", "OMISSION", "HALLUCINATION", "OTHER"}
 
 
 def ensure_quality_state(db: sqlite3.Connection) -> None:
@@ -48,6 +50,8 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
             note TEXT,
             confirmed_text TEXT,
             speaker_intent TEXT,
+            curation_action TEXT,
+            curated_at REAL,
             candidate_transcript_sha256 TEXT,
             transcript_sha256 TEXT,
             first_detected_at REAL NOT NULL,
@@ -68,6 +72,12 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
             "ALTER TABLE quality_reviews "
             "ADD COLUMN candidate_transcript_sha256 TEXT"
         )
+    if "curation_action" not in columns:
+        db.execute(
+            "ALTER TABLE quality_reviews ADD COLUMN curation_action TEXT"
+        )
+    if "curated_at" not in columns:
+        db.execute("ALTER TABLE quality_reviews ADD COLUMN curated_at REAL")
     db.execute(
         """CREATE UNIQUE INDEX IF NOT EXISTS quality_reviews_current_idx
            ON quality_reviews(drive_id, segment_id) WHERE is_current = 1"""
@@ -353,6 +363,109 @@ def decide_quality_review(
     return True
 
 
+def curate_quality_review(
+    db: sqlite3.Connection,
+    drive_id: str,
+    segment_id: str,
+    fingerprint: str,
+    action: str,
+    *,
+    transcript_sha256: str,
+    confirmed_text: str | None = None,
+    now: float | None = None,
+) -> bool:
+    """Add one immutable, version-bound curation to a confirmed decision."""
+    if action not in CURATION_ACTIONS:
+        raise ValueError("Kuratierung muss REPLACE oder DELETE sein")
+    if action == "REPLACE" and (
+        not isinstance(confirmed_text, str) or not confirmed_text.strip()
+    ):
+        raise ValueError("REPLACE benötigt einen bestätigten Ersatztext")
+    if action == "DELETE" and confirmed_text is not None:
+        raise ValueError("DELETE darf keinen Ersatztext tragen")
+
+    current_hash = _validate_transcript_sha256(transcript_sha256)
+    row = db.execute(
+        """SELECT * FROM quality_reviews
+           WHERE drive_id=? AND segment_id=? AND candidate_hash=? AND is_current=1""",
+        (drive_id, segment_id, fingerprint),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Aktueller QA-Kandidat mit diesem Fingerabdruck fehlt")
+    if row["status"] != "CONFIRMED":
+        raise ValueError("Nur bestätigte QA-Entscheidungen können kuratiert werden")
+    if (
+        row["candidate_transcript_sha256"] != current_hash
+        or row["transcript_sha256"] != current_hash
+    ):
+        raise ValueError(
+            "Transkriptversion stimmt nicht mit Kandidat und Entscheidung überein"
+        )
+
+    try:
+        issue_values = json.loads(row["issue_types_json"])
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("QA-Entscheidung enthält ungültige Fehlerarten") from exc
+    if (
+        not isinstance(issue_values, list)
+        or not issue_values
+        or not all(
+            isinstance(issue, str) and issue.strip() for issue in issue_values
+        )
+    ):
+        raise ValueError("QA-Entscheidung enthält ungültige Fehlerarten")
+    issues = set(issue_values)
+    unknown = issues - ISSUE_TYPES
+    if unknown:
+        raise ValueError(
+            "QA-Entscheidung enthält unbekannte Fehlerarten: "
+            + ", ".join(sorted(unknown))
+        )
+    if not issues & TEXT_ISSUES:
+        raise ValueError("Reiner Grenzfehler benötigt keine Textkuratierung")
+    if action == "DELETE" and "HALLUCINATION" not in issues:
+        raise ValueError("DELETE erfordert die Fehlerart HALLUCINATION")
+
+    existing_action = row["curation_action"]
+    existing_text = row["confirmed_text"]
+    if existing_action is not None:
+        if existing_action == action and existing_text == confirmed_text:
+            return False
+        raise FileExistsError(
+            "QA-Entscheidung besitzt bereits eine abweichende Kuratierung"
+        )
+    if existing_text is not None and existing_text != confirmed_text:
+        raise FileExistsError(
+            "QA-Entscheidung besitzt bereits einen abweichenden Ersatztext"
+        )
+
+    moment = time.time() if now is None else now
+    with db:
+        cursor = db.execute(
+            """UPDATE quality_reviews
+               SET curation_action=?, confirmed_text=?, curated_at=?
+               WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                 AND is_current=1 AND status='CONFIRMED'
+                 AND curation_action IS NULL
+                 AND confirmed_text IS ?
+                 AND candidate_transcript_sha256=? AND transcript_sha256=?""",
+            (
+                action,
+                confirmed_text,
+                moment,
+                drive_id,
+                segment_id,
+                fingerprint,
+                existing_text,
+                current_hash,
+                current_hash,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("QA-Kuratierung wurde gleichzeitig verändert")
+    return True
+
+
 def open_readonly_state(path: Path) -> sqlite3.Connection:
     if not path.is_file():
         raise ValueError(f"Pipeline-Datenbank fehlt: {path}")
@@ -384,9 +497,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--segment-id")
     parser.add_argument("--candidate-hash")
     parser.add_argument("--status", choices=sorted(REVIEW_STATUSES))
-    decision = parser.add_mutually_exclusive_group()
-    decision.add_argument("--confirm", action="store_true")
-    decision.add_argument("--dismiss", action="store_true")
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--confirm", action="store_true")
+    operation.add_argument("--dismiss", action="store_true")
+    operation.add_argument("--curate-replacement", metavar="TEXT")
+    operation.add_argument("--curate-delete", action="store_true")
     parser.add_argument("--issue", action="append", default=[], choices=sorted(ISSUE_TYPES))
     parser.add_argument("--note")
     parser.add_argument("--confirmed-text")
@@ -397,22 +512,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _validate_operation(args: argparse.Namespace) -> None:
     deciding = args.confirm or args.dismiss
-    if deciding and not all((args.drive_id, args.segment_id, args.candidate_hash)):
+    curating = args.curate_replacement is not None or args.curate_delete
+    if (deciding or curating) and not all(
+        (args.drive_id, args.segment_id, args.candidate_hash)
+    ):
         raise ValueError(
-            "Bestätigen erfordert --drive-id, --segment-id und --candidate-hash"
+            "Entscheiden und Kuratieren erfordern --drive-id, --segment-id "
+            "und --candidate-hash"
         )
-    if not deciding and any((args.issue, args.note, args.confirmed_text, args.speaker_intent)):
+    if not deciding and any(
+        (args.issue, args.note, args.confirmed_text, args.speaker_intent)
+    ):
         raise ValueError("Entscheidungsdetails erfordern --confirm oder --dismiss")
-    if args.register_segments and deciding:
-        raise ValueError("Registrieren und Entscheiden sind getrennte Schritte")
+    if args.register_segments and (deciding or curating):
+        raise ValueError(
+            "Registrieren, Entscheiden und Kuratieren sind getrennte Schritte"
+        )
     if args.register_segments and any(
         (args.drive_id, args.segment_id, args.candidate_hash, args.status)
     ):
         raise ValueError("Registrieren darf nicht mit Anzeigefiltern kombiniert werden")
-    if not deciding and args.candidate_hash is not None:
-        raise ValueError("--candidate-hash wird nur für eine Entscheidung verwendet")
-    if deciding and args.status is not None:
-        raise ValueError("--status ist ein Anzeigefilter, keine Entscheidung")
+    if not (deciding or curating) and args.candidate_hash is not None:
+        raise ValueError(
+            "--candidate-hash wird nur für eine Entscheidung oder Kuratierung verwendet"
+        )
+    if (deciding or curating) and args.status is not None:
+        raise ValueError("--status ist ein Anzeigefilter, keine Schreiboperation")
 
 
 def _print_rows(rows: list[sqlite3.Row], as_json: bool) -> None:
@@ -437,7 +562,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _validate_operation(args)
         deciding = args.confirm or args.dismiss
-        if args.register_segments or deciding:
+        curating = args.curate_replacement is not None or args.curate_delete
+        if args.register_segments or deciding or curating:
             with open_state(args.state) as db:
                 ensure_quality_state(db)
                 if args.register_segments:
@@ -457,7 +583,7 @@ def main(argv: list[str] | None = None) -> int:
                             ),
                         )
                         print(f"Registriert id={source_id}: {len(rows)} aktuelle Kandidaten")
-                else:
+                elif deciding:
                     transcript_sha256 = transcript_sha256_for_drive(
                         db, args.drive_id
                     )
@@ -474,6 +600,24 @@ def main(argv: list[str] | None = None) -> int:
                         speaker_intent=args.speaker_intent,
                     )
                     print("QA-Entscheidung gespeichert." if changed else "QA-Entscheidung bereits identisch vorhanden.")
+                else:
+                    transcript_sha256 = transcript_sha256_for_drive(
+                        db, args.drive_id
+                    )
+                    changed = curate_quality_review(
+                        db,
+                        args.drive_id,
+                        args.segment_id,
+                        args.candidate_hash,
+                        "DELETE" if args.curate_delete else "REPLACE",
+                        transcript_sha256=transcript_sha256,
+                        confirmed_text=args.curate_replacement,
+                    )
+                    print(
+                        "QA-Kuratierung gespeichert."
+                        if changed
+                        else "QA-Kuratierung bereits identisch vorhanden."
+                    )
             return 0
 
         with open_readonly_state(args.state) as db:

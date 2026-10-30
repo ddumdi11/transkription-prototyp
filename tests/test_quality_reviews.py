@@ -7,6 +7,7 @@ from inbox_watcher import open_state
 from quality_reviews import (
     candidate_hash,
     current_quality_reviews,
+    curate_quality_review,
     decide_quality_review,
     ensure_quality_state,
     sync_quality_candidates,
@@ -185,6 +186,148 @@ class QualityReviewsTest(unittest.TestCase):
                 transcript_sha256=TRANSCRIPT_SHA256,
                 issue_types=["OMISSION"],
                 now=1200,
+            )
+
+    def test_confirmed_review_can_be_curated_exactly_once(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["OMISSION"], now=1100,
+        )
+
+        changed = curate_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            confirmed_text="Vollständiger bestätigter Text.", now=1200,
+        )
+        repeated = curate_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            confirmed_text="Vollständiger bestätigter Text.", now=1300,
+        )
+
+        self.assertTrue(changed)
+        self.assertFalse(repeated)
+        row = current_quality_reviews(self.db)[0]
+        self.assertEqual(row["curation_action"], "REPLACE")
+        self.assertEqual(row["confirmed_text"], "Vollständiger bestätigter Text.")
+        self.assertEqual(row["curated_at"], 1200)
+
+        with self.assertRaisesRegex(FileExistsError, "abweichende Kuratierung"):
+            curate_quality_review(
+                self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+                transcript_sha256=TRANSCRIPT_SHA256,
+                confirmed_text="Anderer Text.", now=1400,
+            )
+
+    def test_delete_curation_requires_confirmed_hallucination(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["WORD_ERROR"], now=1100,
+        )
+
+        with self.assertRaisesRegex(ValueError, "HALLUCINATION"):
+            curate_quality_review(
+                self.db, "drive-id", "segment-000001", fingerprint, "DELETE",
+                transcript_sha256=TRANSCRIPT_SHA256,
+            )
+
+        self.db.execute(
+            "UPDATE quality_reviews SET issue_types_json='[\"HALLUCINATION\"]'"
+        )
+        self.db.commit()
+        self.assertTrue(curate_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "DELETE",
+            transcript_sha256=TRANSCRIPT_SHA256, now=1200,
+        ))
+
+    def test_curation_rejects_changed_transcript_version(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["OMISSION"], now=1100,
+        )
+
+        with self.assertRaisesRegex(ValueError, "Transkriptversion"):
+            curate_quality_review(
+                self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+                transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+                confirmed_text="Korrektur.",
+            )
+
+    def test_curation_rejects_pending_and_boundary_only_review(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+
+        with self.assertRaisesRegex(ValueError, "Nur bestätigte"):
+            curate_quality_review(
+                self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+                transcript_sha256=TRANSCRIPT_SHA256,
+                confirmed_text="Korrektur.",
+            )
+
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["BOUNDARY_ERROR"], now=1100,
+        )
+        with self.assertRaisesRegex(ValueError, "Grenzfehler"):
+            curate_quality_review(
+                self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+                transcript_sha256=TRANSCRIPT_SHA256,
+                confirmed_text="Korrektur.",
+            )
+
+    def test_curation_rejects_malformed_issue_types(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["OMISSION"], now=1100,
+        )
+        self.db.execute(
+            "UPDATE quality_reviews SET issue_types_json='{\"OMISSION\": true}'"
+        )
+        self.db.commit()
+
+        with self.assertRaisesRegex(ValueError, "ungültige Fehlerarten"):
+            curate_quality_review(
+                self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+                transcript_sha256=TRANSCRIPT_SHA256,
+                confirmed_text="Korrektur.",
             )
 
     def test_decision_rejects_transcript_changed_since_registration(self):
