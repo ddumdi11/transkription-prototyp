@@ -6,7 +6,8 @@ from pathlib import Path
 from inbox_watcher import open_state
 from publish_transcripts import prepare_publish_state
 from route_transcripts import (load_config, plan_one, published_transcripts,
-                               plan_published, recording_number, matching_terms)
+                               plan_published, prompt_leak_shadow_diagnostics,
+                               recording_number, matching_terms)
 
 
 class RouteTranscriptsTest(unittest.TestCase):
@@ -178,6 +179,69 @@ class RouteTranscriptsTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     "transkriptionsworkflow-test" in topics, routed
+                )
+
+    def test_prompt_leak_shadow_reports_without_changing_routing(self):
+        self.add_published(
+            "Fachbegriffe: AudioRec, Qwen, IHK, Traktat."
+        )
+        config = {
+            "default_projects": ["always"],
+            "active_projects": [],
+            "exact_terms": [],
+            "project_rules": [
+                {"project": "consulting", "match_any": ["IHK"]},
+            ],
+            "topic_rules": {"behoerden-ihk": ["IHK"]},
+            "_shadow_prompt_leak_hotwords": [
+                "AudioRec", "Qwen", "IHK", "Traktat"
+            ],
+        }
+
+        plan = plan_one(published_transcripts(self.db)[0], config)
+
+        self.assertEqual(
+            [project["name"] for project in plan["projects"]],
+            ["always", "consulting"],
+        )
+        self.assertEqual(plan["topics"], ["behoerden-ihk"])
+        findings = plan["diagnostics"]["prompt_leak_shadow"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(
+            findings[0]["glossary_terms"],
+            ["AudioRec", "Qwen", "IHK", "Traktat"],
+        )
+        self.assertEqual(
+            findings[0]["project_hits"],
+            [{"project": "consulting", "terms": ["IHK"]}],
+        )
+        self.assertEqual(
+            findings[0]["topic_hits"],
+            [{"topic": "behoerden-ihk", "terms": ["IHK"]}],
+        )
+
+    def test_prompt_leak_shadow_ignores_known_counterexamples(self):
+        config = {
+            "project_rules": [],
+            "topic_rules": {},
+            "exact_terms": [],
+            "_shadow_prompt_leak_hotwords": [
+                "IHK", "Job Queue", "Checkpointing", "Idempotenz",
+                "IT-Lotse", "KI-Lotse", "Vier-Ohren-Modell", "Traktat",
+            ],
+        }
+        texts = (
+            "im IHK zeigen, Kunden zeigen, auf LinkedIn",
+            "Job Queue, Checkpointing und Idempotenz drei wichtige Dinge",
+            "IT-Lotse bzw. KI-Lotse",
+            "Traktat, Traktat, Traktat, Traktat",
+            "Vier-Ohren-Modell, Kauderwelsch, IHK, weitere Füllwörter",
+        )
+
+        for text in texts:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    prompt_leak_shadow_diagnostics(text, config), []
                 )
 
     def test_load_config_rejects_malformed_nested_rules(self):

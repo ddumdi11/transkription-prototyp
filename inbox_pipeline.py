@@ -20,7 +20,12 @@ from quality_reviews import (
     sync_quality_candidates,
     transcript_sha256_for_drive,
 )
-from route_transcripts import CONFIG_PATH as ROUTING_CONFIG, load_config, plan_published
+from route_transcripts import (
+    CONFIG_PATH as ROUTING_CONFIG,
+    load_config,
+    log_shadow_diagnostics,
+    plan_published,
+)
 from segment_metadata import SegmentMetadataError, load_segment_metadata
 
 PROMPT = os.environ.get("AUDIOREC_PROMPT")
@@ -236,6 +241,7 @@ def log_routing_plan(db: sqlite3.Connection, drive_id: str, logger) -> bool:
                 "  -> %s [%s]",
                 project["name"], "; ".join(project["reasons"]),
             )
+        log_shadow_diagnostics(plan, logger)
         return True
     except Exception as exc:
         logger.exception("Routing FAILED id=%s: %s", drive_id, exc)
