@@ -141,6 +141,45 @@ class RouteTranscriptsTest(unittest.TestCase):
                 ]
                 self.assertEqual(projects, ["it-ki-beratung"])
 
+    def test_example_config_routes_transkriptionspipeline_compound(self):
+        # Routing-Audit #909–#914, P3: "Pipeline" matches only at a word
+        # start, so the compound "Transkriptionspipeline" needs its own term.
+        example = Path(__file__).resolve().parents[1] / "routing.example.json"
+        config = load_config(example)
+        self.add_published("Platzhalter")
+        row = published_transcripts(self.db)[0]
+        transcript = Path(row["transcript_path"])
+
+        def content_routing(text):
+            transcript.write_text(text, encoding="utf-8")
+            plan = plan_one(row, config)
+            content = {
+                project["name"]: reason
+                for project in plan["projects"]
+                for reason in project["reasons"]
+                if reason.startswith("content:")
+            }
+            return content, plan["topics"]
+
+        cases = [
+            ("ob die Transkriptionspipeline aktiv ist",
+             "content:Transkriptionspipeline", True),
+            ("beide Transkriptionspipelines laufen",
+             "content:Transkriptionspipeline", True),
+            ("die Transkription Pipeline läuft", "content:Pipeline", True),
+            ("die Ölpipeline in Russland", None, False),
+            ("die Transkriptionspipe ist verstopft", None, False),
+        ]
+        for text, reason, routed in cases:
+            with self.subTest(text=text):
+                content, topics = content_routing(text)
+                self.assertEqual(
+                    content.get("projektverwaltung-steuerung"), reason
+                )
+                self.assertEqual(
+                    "transkriptionsworkflow-test" in topics, routed
+                )
+
     def test_load_config_rejects_malformed_nested_rules(self):
         base = {
             "default_projects": ["Z04"],
