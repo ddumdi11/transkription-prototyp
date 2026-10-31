@@ -371,6 +371,15 @@ Jedes Ziel wird mit `default`, `active_context` oder den passenden
 `content:`-Begriffen begründet. In v0.3 erzeugt das Werkzeug ausschließlich den
 Plan; die idempotente Kopierfunktion folgt erst nach geprüftem Dry-Run.
 
+Zusätzlich beobachtet ein reiner Schattenmodus mögliche ASR-Prompt-Rückflüsse:
+Kommaartige Aufzählungen mit mindestens drei verschiedenen aktuellen
+Glossar-Hotwords werden als `Routing SHADOW prompt-leak` protokolliert. Das Log
+enthält nur Positionen und Begriffsnamen, keine Transkriptausschnitte. Angezeigt
+wird außerdem, welche Projekt- oder Thementreffer hypothetisch betroffen wären.
+Der Schattenmodus unterdrückt jedoch keinen Treffer und verändert weder den
+Routingplan noch eine Lieferung. Ein bekannter Grenzfall mit nur zwei
+Glossarbegriffen bleibt von diesem engen Kriterium bewusst unerkannt.
+
 ## Aufnahme-Sitzungen planen (Dry-Run)
 
 `plan_transcript_sessions.py` fasst bereits veröffentlichte Aufnahmen eines

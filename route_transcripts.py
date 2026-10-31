@@ -13,13 +13,18 @@ from typing import Any
 
 from inbox_watcher import open_state, setup_logging
 from publish_transcripts import prepare_publish_state
-from project_glossary import glossary_project_rules
+from project_glossary import (
+    glossary_hotwords,
+    glossary_project_rules,
+    load_glossary,
+)
 
 STATE_DIR = Path(".inbox-watcher")
 CONFIG_PATH = Path(os.environ.get(
     "AUDIOREC_ROUTING_CONFIG", STATE_DIR / "routing.json"
 ))
 NUMBER_PATTERN = re.compile(r"Aufnahme\s*#(\d+)", re.IGNORECASE)
+LIST_ITEM_PATTERN = re.compile(r"[^,.;:!?\n]+[,.;:!?\n]?")
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -58,7 +63,12 @@ def load_config(path: Path) -> dict[str, Any]:
                 or not terms
                 or not all(isinstance(term, str) and term.strip() for term in terms)):
             raise ValueError(f"topic_rules[{topic!r}] muss eine Textliste sein")
-    config["project_rules"].extend(glossary_project_rules())
+    glossary = load_glossary()
+    config["project_rules"].extend(glossary_project_rules(glossary))
+    # Internal diagnostic input. It is deliberately not a routing rule: the
+    # shadow detector may report likely ASR prompt leakage, but never suppresses
+    # a project or topic.
+    config["_shadow_prompt_leak_hotwords"] = glossary_hotwords(glossary)
     return config
 
 
@@ -125,11 +135,130 @@ def matching_terms(
     return matched
 
 
+def _short_comma_runs(
+    text: str,
+    *,
+    max_words: int = 4,
+    min_items: int = 3,
+) -> list[tuple[int, int]]:
+    """Return comma-separated runs of short items for shadow diagnostics."""
+    runs: list[tuple[int, int]] = []
+    current: list[tuple[int, int]] = []
+    for match in LIST_ITEM_PATTERN.finditer(text):
+        raw = match.group(0)
+        item = raw.rstrip(",.;:!?\n").strip()
+        separator = raw[-1] if raw else ""
+        words = item.split()
+        if 1 <= len(words) <= max_words:
+            current.append((match.start(), match.start() + len(
+                raw.rstrip(",.;:!?\n")
+            )))
+            if separator != ",":
+                if len(current) >= min_items:
+                    runs.append((current[0][0], current[-1][1]))
+                current = []
+        else:
+            if len(current) >= min_items:
+                runs.append((current[0][0], current[-1][1]))
+            current = []
+    if len(current) >= min_items:
+        runs.append((current[0][0], current[-1][1]))
+    return runs
+
+
+def _exact_terms_in_text(text: str, terms: list[str]) -> list[str]:
+    folded = text.casefold()
+    return [
+        term
+        for term in terms
+        if re.search(
+            rf"(?<!\w){re.escape(term.casefold())}(?!\w)",
+            folded,
+        )
+    ]
+
+
+def prompt_leak_shadow_diagnostics(
+    text: str,
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Report possible prompt leakage without changing routing decisions."""
+    hotwords = list(config.get("_shadow_prompt_leak_hotwords", []))
+    if not hotwords:
+        return []
+    diagnostics = []
+    for start, end in _short_comma_runs(text):
+        excerpt = text[start:end]
+        glossary_terms = _exact_terms_in_text(excerpt, hotwords)
+        if len({term.casefold() for term in glossary_terms}) < 3:
+            continue
+
+        project_hits: dict[str, list[str]] = {}
+        for rule in config["project_rules"]:
+            matched = matching_terms(
+                excerpt,
+                list(rule.get("match_any", [])),
+                config.get("exact_terms", []),
+            )
+            if matched:
+                project = str(rule["project"])
+                project_hits.setdefault(project, [])
+                for term in matched:
+                    if term not in project_hits[project]:
+                        project_hits[project].append(term)
+
+        topic_hits = []
+        for topic, terms in config["topic_rules"].items():
+            matched = matching_terms(
+                excerpt,
+                list(terms),
+                config.get("exact_terms", []),
+            )
+            if matched:
+                topic_hits.append({"topic": str(topic), "terms": matched})
+
+        diagnostics.append({
+            "start": start,
+            "end": end,
+            "glossary_terms": glossary_terms,
+            "project_hits": [
+                {"project": project, "terms": terms}
+                for project, terms in project_hits.items()
+            ],
+            "topic_hits": topic_hits,
+        })
+    return diagnostics
+
+
+def log_shadow_diagnostics(plan: dict[str, Any], logger) -> None:
+    """Log shadow findings without logging transcript excerpts."""
+    for finding in plan.get("diagnostics", {}).get("prompt_leak_shadow", []):
+        projects = ",".join(
+            f"{hit['project']}:{'|'.join(hit['terms'])}"
+            for hit in finding["project_hits"]
+        ) or "-"
+        topics = ",".join(
+            f"{hit['topic']}:{'|'.join(hit['terms'])}"
+            for hit in finding["topic_hits"]
+        ) or "-"
+        logger.warning(
+            "Routing SHADOW prompt-leak id=%s span=%d-%d glossary=%s "
+            "would_suppress_projects=%s would_suppress_topics=%s",
+            plan["drive_id"],
+            finding["start"],
+            finding["end"],
+            "|".join(finding["glossary_terms"]),
+            projects,
+            topics,
+        )
+
+
 def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
     transcript_path = Path(row["transcript_path"])
     if not transcript_path.is_file():
         raise ValueError(f"Lokales Transkript fehlt: {transcript_path}")
     text = transcript_path.read_text(encoding="utf-8")
+    shadow_findings = prompt_leak_shadow_diagnostics(text, config)
     reasons: dict[str, list[str]] = {}
 
     def add_project(project: str, reason: str) -> None:
@@ -166,6 +295,7 @@ def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
             for project, project_reasons in reasons.items()
         ],
         "topics": topics,
+        "diagnostics": {"prompt_leak_shadow": shadow_findings},
     }
 
 
@@ -219,6 +349,7 @@ def main() -> int:
                 for project in plan["projects"]:
                     logger.info("  -> %s [%s]", project["name"],
                                 "; ".join(project["reasons"]))
+                log_shadow_diagnostics(plan, logger)
             logger.info("Dry-Run beendet (keine Kopie, keine Drive-Änderung)")
         return 0
     except Exception as exc:
