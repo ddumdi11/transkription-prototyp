@@ -15,7 +15,8 @@
       "project": "projektverwaltung-steuerung",
       "match_any": [
         "Upload", "Drive", "Pipeline", "Workflow", "Inbox-Wächter",
-        "Sperrbildschirm", "Transkriptionsautomatisierung"
+        "Sperrbildschirm", "Transkriptionsautomatisierung",
+        "Transkriptionspipeline"
       ]
     },
     {
@@ -32,7 +33,8 @@
     "produktideen": ["Produktidee", "Webseite", "Promptseite", "Checkbox"],
     "transkriptionsworkflow-test": [
       "Upload", "Drive", "Pipeline", "Workflow", "Inbox-Wächter",
-      "Sperrbildschirm", "Transkriptionsautomatisierung"
+      "Sperrbildschirm", "Transkriptionsautomatisierung",
+      "Transkriptionspipeline"
     ],
     "persoenliche-reflexion": ["Selbstreflexion", "Selbstregulation", "Heimathafen"],
     "recherche-faktencheck": ["Recherche", "Faktencheck", "Bias"]
