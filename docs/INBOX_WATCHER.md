@@ -377,8 +377,8 @@ Glossar-Hotwords werden als `Routing SHADOW prompt-leak` protokolliert. Das Log
 enthält nur Positionen und Begriffsnamen, keine Transkriptausschnitte. Angezeigt
 wird außerdem, welche Projekt- oder Thementreffer hypothetisch betroffen wären.
 Der Schattenmodus unterdrückt jedoch keinen Treffer und verändert weder den
-Routingplan noch eine Lieferung. #912 bleibt als bekannte, von diesem engen
-Kriterium nicht erkannte Lücke dokumentiert.
+Routingplan noch eine Lieferung. Ein bekannter Grenzfall mit nur zwei
+Glossarbegriffen bleibt von diesem engen Kriterium bewusst unerkannt.
 
 ## Aufnahme-Sitzungen planen (Dry-Run)
 
