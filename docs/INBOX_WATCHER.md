@@ -380,6 +380,50 @@ Der Schattenmodus unterdrückt jedoch keinen Treffer und verändert weder den
 Routingplan noch eine Lieferung. Ein bekannter Grenzfall mit nur zwei
 Glossarbegriffen bleibt von diesem engen Kriterium bewusst unerkannt.
 
+### Inhaltsbelege einstufen (beratend)
+
+Der optionale Block `content_evidence` in der Routing-Konfiguration stuft
+vorhandene Inhaltstreffer ein, ohne sie zu verändern. Fehlt der Block, enthält
+der Plan auch kein Feld `content_evidence`; er bleibt dann unverändert.
+
+```json
+"content_evidence": {
+  "support_window_chars": 250,
+  "rules": [
+    {"target_type": "project", "target": "it-ki-beratung",
+     "weak_terms": ["Kunde", "Angebot"],
+     "support_any": ["KI", "IT", "Beratung", "..."]}
+  ]
+}
+```
+
+- `weak_terms` sind allgemeine Begriffe, die bereits zu den Regeln des Ziels
+  gehören müssen. `support_any` sind Stützsignale, die keine schwachen Begriffe
+  enthalten dürfen. Begriffe werden wie beim Matching ohne Groß- und
+  Kleinschreibung verglichen; ungültige Angaben führen zu einem `ValueError`.
+- `strong`: Mindestens ein nicht schwacher Zielbegriff hat getroffen. Das
+  bedeutet nur „spezifischer Regelbegriff“, nicht „fachlich geprüft“.
+- `supported`: Nur schwache Begriffe haben getroffen, aber ein Stützsignal
+  beginnt höchstens `support_window_chars` Zeichen vor oder nach einem
+  schwachen Treffer.
+- `weak`: Nur schwache Begriffe ohne Stützsignal im Fenster.
+
+Jeder Beleg nennt Zieltyp, Ziel, Stufe, Grundlage, getroffene, schwache und
+stützende Begriffe sowie die Zahl der Vorkommen je Begriff. Die Vorkommen sind
+rein informativ. Belege entstehen nur für tatsächliche Inhaltstreffer:
+`default` und `active_context` zählen nie als Beleg oder Stütze, und
+Stützsignale erzeugen nie selbst ein Projekt oder Thema. `projects`, `topics`,
+`reasons`, `diagnostics`, Sitzungspläne, Manifeste und Lieferungen bleiben
+unverändert. Für jedes `weak`-Ziel schreibt die Pipeline eine Zeile
+`Routing EVIDENCE` mit Zieltyp, Ziel, Stufe und Begriffsnamen, ohne
+Textstellen oder gefundene Wortformen.
+
+Bekannte Grenzen: Ein `weak`-Beleg bedeutet „zur Bestätigung vorlegen“, nicht
+„falsch“; auch zutreffende Zuordnungen ohne Stützbegriff in der Nähe bleiben
+`weak`. Die Einstufung ist unabhängig vom Prompt-Rückfluss-Schattenmodus:
+Ein Stützsignal, das selbst ein Glossar-Hotword ist, zählt auch dann, wenn es
+in einer als möglicher Rückfluss gemeldeten Aufzählung steht.
+
 ## Aufnahme-Sitzungen planen (Dry-Run)
 
 `plan_transcript_sessions.py` fasst bereits veröffentlichte Aufnahmen eines

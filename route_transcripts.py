@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any
+from typing import Any, Iterator
 
 from inbox_watcher import open_state, setup_logging
 from publish_transcripts import prepare_publish_state
@@ -25,6 +25,8 @@ CONFIG_PATH = Path(os.environ.get(
 ))
 NUMBER_PATTERN = re.compile(r"Aufnahme\s*#(\d+)", re.IGNORECASE)
 LIST_ITEM_PATTERN = re.compile(r"[^,.;:!?\n]+[,.;:!?\n]?")
+CONTENT_EVIDENCE_SCHEMA_VERSION = 1
+CONTENT_EVIDENCE_TARGET_TYPES = ("project", "topic")
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -69,7 +71,109 @@ def load_config(path: Path) -> dict[str, Any]:
     # shadow detector may report likely ASR prompt leakage, but never suppresses
     # a project or topic.
     config["_shadow_prompt_leak_hotwords"] = glossary_hotwords(glossary)
+    # Validated after the glossary merge, so glossary aliases count as rule
+    # terms. Without the optional block, plans keep their previous shape.
+    if "content_evidence" in config:
+        config["content_evidence"] = validate_content_evidence_config(config)
     return config
+
+
+def _text_terms(value: Any, field: str, *, allow_empty: bool) -> list[str]:
+    if (not isinstance(value, list)
+            or (not value and not allow_empty)
+            or not all(isinstance(term, str) and term.strip() for term in value)):
+        raise ValueError(f"{field} muss eine Textliste sein")
+    folded = [term.casefold() for term in value]
+    if len(set(folded)) != len(folded):
+        raise ValueError(f"{field} enthält doppelte Begriffe")
+    return list(value)
+
+
+def validate_content_evidence_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Validate the optional, advisory weak-evidence block and normalize it.
+
+    The block only classifies existing content matches. It never adds rules,
+    so it cannot create, remove or block a project or topic.
+    """
+    block = config["content_evidence"]
+    if not isinstance(block, dict):
+        raise ValueError("content_evidence muss ein Objekt sein")
+    unknown = set(block) - {"support_window_chars", "rules"}
+    if unknown:
+        raise ValueError(
+            f"content_evidence enthält unbekannte Felder: {sorted(unknown)}"
+        )
+    window = block.get("support_window_chars")
+    if type(window) is not int or window < 1:
+        raise ValueError(
+            "content_evidence.support_window_chars muss eine positive ganze Zahl sein"
+        )
+    rules = block.get("rules")
+    if not isinstance(rules, list):
+        raise ValueError("content_evidence.rules muss eine Liste sein")
+
+    rule_terms: dict[tuple[str, str], list[str]] = {}
+    for rule in config["project_rules"]:
+        rule_terms.setdefault(("project", rule["project"]), []).extend(
+            rule["match_any"]
+        )
+    for topic, terms in config["topic_rules"].items():
+        rule_terms[("topic", topic)] = list(terms)
+
+    normalized = []
+    seen: set[tuple[str, str]] = set()
+    for index, rule in enumerate(rules):
+        field = f"content_evidence.rules[{index}]"
+        if not isinstance(rule, dict):
+            raise ValueError(f"{field} muss ein Objekt sein")
+        expected = {"target_type", "target", "weak_terms", "support_any"}
+        if set(rule) != expected:
+            raise ValueError(
+                f"{field} benötigt genau die Felder {sorted(expected)}"
+            )
+        target_type = rule["target_type"]
+        if target_type not in CONTENT_EVIDENCE_TARGET_TYPES:
+            raise ValueError(
+                f"{field}.target_type muss 'project' oder 'topic' sein"
+            )
+        target = rule["target"]
+        if not isinstance(target, str) or not target.strip():
+            raise ValueError(f"{field}.target muss ein nichtleerer Text sein")
+        key = (target_type, target)
+        if key not in rule_terms:
+            raise ValueError(
+                f"{field}.target hat keine Inhaltsregel: {target_type} {target!r}"
+            )
+        if key in seen:
+            raise ValueError(f"{field}.target ist doppelt: {target_type} {target!r}")
+        seen.add(key)
+        weak_terms = _text_terms(
+            rule["weak_terms"], f"{field}.weak_terms", allow_empty=False
+        )
+        known = {term.casefold() for term in rule_terms[key]}
+        unknown_terms = [term for term in weak_terms if term.casefold() not in known]
+        if unknown_terms:
+            raise ValueError(
+                f"{field}.weak_terms sind keine Regelbegriffe des Ziels: "
+                f"{unknown_terms}"
+            )
+        support_any = _text_terms(
+            rule["support_any"], f"{field}.support_any", allow_empty=True
+        )
+        weak_folded = {term.casefold() for term in weak_terms}
+        overlap = [term for term in support_any if term.casefold() in weak_folded]
+        if overlap:
+            raise ValueError(
+                f"{field}.support_any darf keine schwachen Begriffe enthalten: "
+                f"{overlap}"
+            )
+        normalized.append({
+            "target_type": target_type,
+            "target": target,
+            "weak_terms": weak_terms,
+            "support_any": support_any,
+        })
+    return {"support_window_chars": window, "rules": normalized}
 
 
 def published_transcripts(db: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -103,6 +207,34 @@ def recording_number(path: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def accepted_occurrences(
+    folded: str,
+    term: str,
+    folded_exact_terms: set[str],
+) -> Iterator[tuple[int, int]]:
+    """Yield every accepted occurrence of ``term`` in casefolded text.
+
+    This is the single source of the routing match semantics; matching_terms
+    only asks whether a first occurrence exists.
+    """
+    folded_term = term.casefold()
+    is_short_acronym = term.isupper() and len(re.sub(r"\W", "", term)) <= 3
+    allow_inflection = (
+        folded_term not in folded_exact_terms and not is_short_acronym
+    )
+    # Terms must start at a word boundary so "Gründung" does not match
+    # "Begründung". Common inflections and linking letters remain valid,
+    # while unrelated continuations such as "Drive" in "Driver" do not.
+    pattern = rf"(?<!\w){re.escape(folded_term)}"
+    for occurrence in re.finditer(pattern, folded):
+        # Two characters suffice for every check below.
+        tail = folded[occurrence.end():occurrence.end() + 2]
+        if not tail or not (tail[0].isalnum() or tail[0] == "_"):
+            yield occurrence.start(), occurrence.end()
+        elif allow_inflection and tail.startswith(("e", "en", "er", "n", "s")):
+            yield occurrence.start(), occurrence.end()
+
+
 def matching_terms(
     text: str,
     terms: list[str],
@@ -112,27 +244,12 @@ def matching_terms(
     folded_exact_terms = {
         term.casefold() for term in (exact_terms or [])
     }
-    matched = []
-    for term in terms:
-        folded_term = term.casefold()
-        # Terms must start at a word boundary so "Gründung" does not match
-        # "Begründung". Common inflections and linking letters remain valid,
-        # while unrelated continuations such as "Drive" in "Driver" do not.
-        pattern = rf"(?<!\w){re.escape(folded_term)}"
-        for occurrence in re.finditer(pattern, folded):
-            tail = folded[occurrence.end():]
-            if not tail or not (tail[0].isalnum() or tail[0] == "_"):
-                matched.append(term)
-                break
-            if folded_term in folded_exact_terms:
-                continue
-            is_short_acronym = (
-                term.isupper() and len(re.sub(r"\W", "", term)) <= 3
-            )
-            if not is_short_acronym and tail.startswith(("e", "en", "er", "n", "s")):
-                matched.append(term)
-                break
-    return matched
+    return [
+        term
+        for term in terms
+        if next(accepted_occurrences(folded, term, folded_exact_terms), None)
+        is not None
+    ]
 
 
 def _short_comma_runs(
@@ -253,6 +370,102 @@ def log_shadow_diagnostics(plan: dict[str, Any], logger) -> None:
         )
 
 
+def _unique_casefold(terms: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        folded = term.casefold()
+        if folded not in seen:
+            seen.add(folded)
+            result.append(term)
+    return result
+
+
+def build_content_evidence(
+    text: str,
+    config: dict[str, Any],
+    content_matches: list[tuple[str, str, list[str]]],
+) -> dict[str, Any] | None:
+    """Classify existing content matches as strong, supported or weak.
+
+    ``content_matches`` holds ``(target_type, target, matched_terms)`` for
+    actual content hits only, in plan order. Delivery rules (default,
+    active_context) are never passed in and therefore never count as evidence
+    or support. The result only uses configured term names and counts; it
+    contains no transcript text or matched surface forms.
+    """
+    settings = config.get("content_evidence")
+    if settings is None:
+        return None
+    window = settings["support_window_chars"]
+    rules = {
+        (rule["target_type"], rule["target"]): rule for rule in settings["rules"]
+    }
+    folded = text.casefold()
+    folded_exact_terms = {
+        term.casefold() for term in config.get("exact_terms", [])
+    }
+
+    def spans(term: str) -> list[tuple[int, int]]:
+        return list(accepted_occurrences(folded, term, folded_exact_terms))
+
+    items = []
+    for target_type, target, terms in content_matches:
+        matched = _unique_casefold(terms)
+        rule = rules.get((target_type, target))
+        weak_folded = (
+            {term.casefold() for term in rule["weak_terms"]} if rule else set()
+        )
+        weak_terms = [term for term in matched if term.casefold() in weak_folded]
+        term_spans = {term: spans(term) for term in matched}
+        supporting_terms: list[str] = []
+        if len(weak_terms) < len(matched):
+            strength, basis = "strong", "specific_term"
+        else:
+            weak_spans = [span for term in weak_terms for span in term_spans[term]]
+            for support in rule["support_any"]:
+                if any(
+                    weak_start - window <= start <= weak_end + window
+                    for start, _ in spans(support)
+                    for weak_start, weak_end in weak_spans
+                ):
+                    supporting_terms.append(support)
+            if supporting_terms:
+                strength, basis = "supported", "weak_terms_with_local_support"
+            else:
+                strength, basis = "weak", "weak_terms_only"
+        items.append({
+            "target_type": target_type,
+            "target": target,
+            "strength": strength,
+            "basis": basis,
+            "matched_terms": matched,
+            "weak_terms": weak_terms,
+            "supporting_terms": supporting_terms,
+            "occurrences": {term: len(term_spans[term]) for term in matched},
+        })
+    return {
+        "schema_version": CONTENT_EVIDENCE_SCHEMA_VERSION,
+        "support_window_chars": window,
+        "items": items,
+    }
+
+
+def log_content_evidence(plan: dict[str, Any], logger) -> None:
+    """Log weak targets with configured term names only."""
+    evidence = plan.get("content_evidence") or {}
+    for item in evidence.get("items", []):
+        if item["strength"] != "weak":
+            continue
+        logger.info(
+            "Routing EVIDENCE target_type=%s target=%s strength=%s terms=%s",
+            item["target_type"],
+            item["target"],
+            item["strength"],
+            "|".join(item["matched_terms"]),
+        )
+
+
 def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
     transcript_path = Path(row["transcript_path"])
     if not transcript_path.is_file():
@@ -260,6 +473,7 @@ def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
     text = transcript_path.read_text(encoding="utf-8")
     shadow_findings = prompt_leak_shadow_diagnostics(text, config)
     reasons: dict[str, list[str]] = {}
+    project_content_terms: dict[str, list[str]] = {}
 
     def add_project(project: str, reason: str) -> None:
         reasons.setdefault(project, [])
@@ -278,13 +492,19 @@ def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
         )
         if matched:
             add_project(str(rule["project"]), "content:" + ",".join(matched))
+            project_content_terms.setdefault(str(rule["project"]), []).extend(
+                matched
+            )
 
     topics = []
+    topic_content_terms: dict[str, list[str]] = {}
     for topic, terms in config["topic_rules"].items():
-        if matching_terms(text, list(terms), config.get("exact_terms", [])):
+        matched = matching_terms(text, list(terms), config.get("exact_terms", []))
+        if matched:
             topics.append(str(topic))
+            topic_content_terms[str(topic)] = matched
 
-    return {
+    plan = {
         "drive_id": row["drive_id"],
         "audio_path": row["audio_path"],
         "transcript_path": row["transcript_path"],
@@ -297,6 +517,17 @@ def plan_one(row: sqlite3.Row, config: dict[str, Any]) -> dict[str, Any]:
         "topics": topics,
         "diagnostics": {"prompt_leak_shadow": shadow_findings},
     }
+    content_matches = [
+        ("project", project, project_content_terms[project])
+        for project in reasons
+        if project in project_content_terms
+    ] + [
+        ("topic", topic, topic_content_terms[topic]) for topic in topics
+    ]
+    evidence = build_content_evidence(text, config, content_matches)
+    if evidence is not None:
+        plan["content_evidence"] = evidence
+    return plan
 
 
 def plan_published(
@@ -350,6 +581,7 @@ def main() -> int:
                     logger.info("  -> %s [%s]", project["name"],
                                 "; ".join(project["reasons"]))
                 log_shadow_diagnostics(plan, logger)
+                log_content_evidence(plan, logger)
             logger.info("Dry-Run beendet (keine Kopie, keine Drive-Änderung)")
         return 0
     except Exception as exc:
