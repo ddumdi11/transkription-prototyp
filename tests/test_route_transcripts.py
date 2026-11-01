@@ -566,6 +566,47 @@ class ContentEvidenceTest(unittest.TestCase):
                 self.assertEqual(items[("project", "consulting")]["strength"],
                                  strength)
 
+    def test_support_window_uses_original_offsets_across_casefold_expansion(self):
+        config = self.config()
+        cases = [
+            ("Angebot.ß" + " " * 248 + "KI", "supported"),
+            ("Angebot.ß" + " " * 249 + "KI", "weak"),
+        ]
+        for text, strength in cases:
+            with self.subTest(strength=strength):
+                items = self.items(self.plan(text, config))
+                self.assertEqual(
+                    items[("project", "consulting")]["strength"], strength
+                )
+
+    def test_inflection_suffix_counts_toward_support_window(self):
+        config = self.config()
+        for weak_term in ("Kunden", "Angebot"):
+            with self.subTest(weak_term=weak_term):
+                items = self.items(self.plan(
+                    weak_term + " " * 250 + "KI", config
+                ))
+                self.assertEqual(
+                    items[("project", "consulting")]["strength"],
+                    "supported",
+                )
+
+    def test_support_lookup_keeps_overlapping_covering_span(self):
+        block = copy.deepcopy(EVIDENCE_BLOCK)
+        block["support_window_chars"] = 1
+        block["rules"][0]["weak_terms"] = [
+            "Kunde", "Kunde Preis Paket", "Preis"
+        ]
+        base = copy.deepcopy(BASE_CONFIG)
+        base["project_rules"][0]["match_any"].extend(
+            ["Kunde Preis Paket", "Preis"]
+        )
+        config = self.config(block=block, base=base, name="overlap.json")
+        items = self.items(self.plan("Kunde Preis Paket KI", config))
+        self.assertEqual(
+            items[("project", "consulting")]["strength"], "supported"
+        )
+
     def test_wider_window_changes_only_the_classification(self):
         text = "Angebot" + " " * 300 + "KI"
         narrow = self.plan(text, self.config())

@@ -337,6 +337,10 @@ class InboxPipelineTest(unittest.TestCase):
                      "basis": "weak_terms_with_local_support",
                      "matched_terms": ["Kunde"], "weak_terms": ["Kunde"],
                      "supporting_terms": ["KI"], "occurrences": {"Kunde": 2}},
+                    {"target_type": "topic", "target": "preise",
+                     "strength": "weak", "basis": "weak_terms_only",
+                     "matched_terms": ["Preis"], "weak_terms": ["Preis"],
+                     "supporting_terms": [], "occurrences": {"Preis": 1}},
                 ],
             },
         }
@@ -352,6 +356,8 @@ class InboxPipelineTest(unittest.TestCase):
                 ("  -> %s [%s]", "consulting", "active_context; content:Kunde"),
                 ("Routing EVIDENCE target_type=%s target=%s strength=%s terms=%s",
                  "project", "consulting", "weak", "Kunde"),
+                ("Routing EVIDENCE target_type=%s target=%s strength=%s terms=%s",
+                 "topic", "preise", "weak", "Preis"),
             ],
         )
         logger.warning.assert_not_called()

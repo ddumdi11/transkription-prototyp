@@ -392,7 +392,7 @@ der Plan auch kein Feld `content_evidence`; er bleibt dann unverändert.
   "rules": [
     {"target_type": "project", "target": "it-ki-beratung",
      "weak_terms": ["Kunde", "Angebot"],
-     "support_any": ["KI", "IT", "Beratung", "..."]}
+     "support_any": ["KI", "IT", "Beratung"]}
   ]
 }
 ```

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_right
 import json
 import os
 from pathlib import Path
@@ -231,8 +232,14 @@ def accepted_occurrences(
         tail = folded[occurrence.end():occurrence.end() + 2]
         if not tail or not (tail[0].isalnum() or tail[0] == "_"):
             yield occurrence.start(), occurrence.end()
-        elif allow_inflection and tail.startswith(("e", "en", "er", "n", "s")):
-            yield occurrence.start(), occurrence.end()
+        elif allow_inflection:
+            suffix = next(
+                (item for item in ("en", "er", "e", "n", "s")
+                 if tail.startswith(item)),
+                None,
+            )
+            if suffix is not None:
+                yield occurrence.start(), occurrence.end() + len(suffix)
 
 
 def matching_terms(
@@ -401,13 +408,24 @@ def build_content_evidence(
     rules = {
         (rule["target_type"], rule["target"]): rule for rule in settings["rules"]
     }
-    folded = text.casefold()
+    folded_parts: list[str] = []
+    folded_origins: list[int] = []
+    for index, character in enumerate(text):
+        part = character.casefold()
+        folded_parts.append(part)
+        folded_origins.extend([index] * len(part))
+    folded = "".join(folded_parts)
     folded_exact_terms = {
         term.casefold() for term in config.get("exact_terms", [])
     }
 
     def spans(term: str) -> list[tuple[int, int]]:
-        return list(accepted_occurrences(folded, term, folded_exact_terms))
+        return [
+            (folded_origins[start], folded_origins[end - 1] + 1)
+            for start, end in accepted_occurrences(
+                folded, term, folded_exact_terms
+            )
+        ]
 
     items = []
     for target_type, target, terms in content_matches:
@@ -422,12 +440,29 @@ def build_content_evidence(
         if len(weak_terms) < len(matched):
             strength, basis = "strong", "specific_term"
         else:
-            weak_spans = [span for term in weak_terms for span in term_spans[term]]
+            weak_spans = sorted(
+                span for term in weak_terms for span in term_spans[term]
+            )
+            weak_starts: list[int] = []
+            running_max_ends: list[int] = []
+            maximum_end = -1
+            for weak_start, weak_end in weak_spans:
+                weak_starts.append(weak_start)
+                maximum_end = max(maximum_end, weak_end)
+                running_max_ends.append(maximum_end)
+
+            def has_local_support(support_start: int) -> bool:
+                index = bisect_right(
+                    weak_starts, support_start + window
+                ) - 1
+                return (
+                    index >= 0
+                    and running_max_ends[index] >= support_start - window
+                )
+
             for support in rule["support_any"]:
                 if any(
-                    weak_start - window <= start <= weak_end + window
-                    for start, _ in spans(support)
-                    for weak_start, weak_end in weak_spans
+                    has_local_support(start) for start, _ in spans(support)
                 ):
                     supporting_terms.append(support)
             if supporting_terms:
