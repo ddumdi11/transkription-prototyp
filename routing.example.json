@@ -38,5 +38,28 @@
     ],
     "persoenliche-reflexion": ["Selbstreflexion", "Selbstregulation", "Heimathafen"],
     "recherche-faktencheck": ["Recherche", "Faktencheck", "Bias"]
+  },
+  "content_evidence": {
+    "support_window_chars": 250,
+    "rules": [
+      {
+        "target_type": "project",
+        "target": "it-ki-beratung",
+        "weak_terms": ["Kunde", "Angebot"],
+        "support_any": [
+          "KI", "IT", "Beratung", "Dienstleistung", "Automatisierung",
+          "Akquise", "Auftrag", "Rechnung", "Stundensatz", "Lotse"
+        ]
+      },
+      {
+        "target_type": "topic",
+        "target": "geschaeftsmodell-angebote",
+        "weak_terms": ["Kunde", "Angebot", "Preis"],
+        "support_any": [
+          "KI", "IT", "Beratung", "Dienstleistung", "Automatisierung",
+          "Akquise", "Auftrag", "Rechnung", "Stundensatz", "Lotse"
+        ]
+      }
+    ]
   }
 }
