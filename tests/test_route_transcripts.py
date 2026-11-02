@@ -581,7 +581,7 @@ class ContentEvidenceTest(unittest.TestCase):
 
     def test_inflection_suffix_counts_toward_support_window(self):
         config = self.config()
-        for weak_term in ("Kunden", "Angebot"):
+        for weak_term in ("Kunden", "Angeboten", "Angebot"):
             with self.subTest(weak_term=weak_term):
                 items = self.items(self.plan(
                     weak_term + " " * 250 + "KI", config

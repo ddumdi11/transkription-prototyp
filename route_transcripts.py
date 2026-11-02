@@ -408,6 +408,12 @@ def build_content_evidence(
     rules = {
         (rule["target_type"], rule["target"]): rule for rule in settings["rules"]
     }
+    if not content_matches:
+        return {
+            "schema_version": CONTENT_EVIDENCE_SCHEMA_VERSION,
+            "support_window_chars": window,
+            "items": [],
+        }
     folded_parts: list[str] = []
     folded_origins: list[int] = []
     for index, character in enumerate(text):
