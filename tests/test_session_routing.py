@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from plan_session_routing import build_session_routing
+from plan_session_routing import build_session_routing, routing_plan_hash
+from route_transcripts import load_config
 from segment_metadata import SegmentMetadataError
 
 
@@ -117,6 +118,30 @@ class SessionRoutingTest(unittest.TestCase):
         evidence = projects["Watcher"]["segments"][0]
         self.assertEqual(evidence["absolute_start"], "2026-09-19T11:00:10+02:00")
         self.assertEqual(evidence["absolute_end"], "2026-09-19T11:00:20+02:00")
+
+    def test_content_evidence_block_does_not_change_session_plan_or_hash(self):
+        session = self.session([
+            self.segment(1, 10, 20, "Ein Angebot für den Kunden zum Preis."),
+            self.segment(2, 30, 40, "Die Pipeline lädt alles ins Drive."),
+            self.segment(3, 50, 60, "KI-Beratung und eine Rechnung."),
+        ])
+        example = json.loads(
+            (Path(__file__).resolve().parents[1] / "routing.example.json")
+            .read_text(encoding="utf-8")
+        )
+        self.assertIn("content_evidence", example)
+        with_block = self.root / "with-block.json"
+        with_block.write_text(json.dumps(example), encoding="utf-8")
+        example.pop("content_evidence")
+        without_block = self.root / "without-block.json"
+        without_block.write_text(json.dumps(example), encoding="utf-8")
+
+        planned = build_session_routing(session, load_config(with_block))
+        plain = build_session_routing(session, load_config(without_block))
+
+        self.assertEqual(planned, plain)
+        self.assertEqual(routing_plan_hash(planned), routing_plan_hash(plain))
+        self.assertNotIn("content_evidence", json.dumps(planned, default=str))
 
     def test_empty_recording_keeps_whole_session_destinations(self):
         result = build_session_routing(self.session([]), self.config())

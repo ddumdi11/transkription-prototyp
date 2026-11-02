@@ -23,6 +23,7 @@ from quality_reviews import (
 from route_transcripts import (
     CONFIG_PATH as ROUTING_CONFIG,
     load_config,
+    log_content_evidence,
     log_shadow_diagnostics,
     plan_published,
 )
@@ -242,6 +243,7 @@ def log_routing_plan(db: sqlite3.Connection, drive_id: str, logger) -> bool:
                 project["name"], "; ".join(project["reasons"]),
             )
         log_shadow_diagnostics(plan, logger)
+        log_content_evidence(plan, logger)
         return True
     except Exception as exc:
         logger.exception("Routing FAILED id=%s: %s", drive_id, exc)

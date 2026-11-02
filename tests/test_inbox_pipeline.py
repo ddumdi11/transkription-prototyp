@@ -314,6 +314,54 @@ class InboxPipelineTest(unittest.TestCase):
         self.assertEqual(messages, ["Job ROUTED id=%s path=%r topics=%s", "  -> %s [%s]",
                                     "  -> %s [%s]"])
 
+    def test_log_routing_plan_adds_one_line_per_weak_evidence_item(self):
+        logger = Mock()
+        plan = {
+            "drive_id": "drive-id",
+            "audio_path": "Aufnahme.wav",
+            "topics": ["angebote"],
+            "projects": [
+                {"name": "consulting", "reasons": ["active_context", "content:Kunde"]},
+            ],
+            "diagnostics": {"prompt_leak_shadow": []},
+            "content_evidence": {
+                "schema_version": 1,
+                "support_window_chars": 250,
+                "items": [
+                    {"target_type": "project", "target": "consulting",
+                     "strength": "weak", "basis": "weak_terms_only",
+                     "matched_terms": ["Kunde"], "weak_terms": ["Kunde"],
+                     "supporting_terms": [], "occurrences": {"Kunde": 2}},
+                    {"target_type": "topic", "target": "angebote",
+                     "strength": "supported",
+                     "basis": "weak_terms_with_local_support",
+                     "matched_terms": ["Kunde"], "weak_terms": ["Kunde"],
+                     "supporting_terms": ["KI"], "occurrences": {"Kunde": 2}},
+                    {"target_type": "topic", "target": "preise",
+                     "strength": "weak", "basis": "weak_terms_only",
+                     "matched_terms": ["Preis"], "weak_terms": ["Preis"],
+                     "supporting_terms": [], "occurrences": {"Preis": 1}},
+                ],
+            },
+        }
+        with (patch("inbox_pipeline.load_config", return_value={}),
+              patch("inbox_pipeline.plan_published", return_value=plan)):
+            result = log_routing_plan(self.db, "drive-id", logger)
+        self.assertTrue(result)
+        self.assertEqual(
+            [call.args for call in logger.info.call_args_list],
+            [
+                ("Job ROUTED id=%s path=%r topics=%s", "drive-id",
+                 "Aufnahme.wav", "angebote"),
+                ("  -> %s [%s]", "consulting", "active_context; content:Kunde"),
+                ("Routing EVIDENCE target_type=%s target=%s strength=%s terms=%s",
+                 "project", "consulting", "weak", "Kunde"),
+                ("Routing EVIDENCE target_type=%s target=%s strength=%s terms=%s",
+                 "topic", "preise", "weak", "Preis"),
+            ],
+        )
+        logger.warning.assert_not_called()
+
     def test_log_routing_failure_does_not_raise(self):
         logger = Mock()
         with patch("inbox_pipeline.load_config", side_effect=ValueError("bad config")):
