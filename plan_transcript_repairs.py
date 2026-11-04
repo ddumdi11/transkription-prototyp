@@ -16,6 +16,8 @@ from quality_reviews import ISSUE_TYPES, open_readonly_state
 
 
 DEFAULT_STATE = Path(".inbox-watcher/state.sqlite3")
+PLAN_SCHEMA_VERSION = 3
+PLAN_TYPE = "confirmed_transcript_repair_dry_run"
 TEXT_ISSUES = {"WORD_ERROR", "OMISSION", "HALLUCINATION", "OTHER"}
 REPAIR_ACTIONS = {
     "NO_TEXT_CHANGE",
@@ -28,6 +30,26 @@ RECORDING_STATUSES = {
     "CURATED_CHANGES_AVAILABLE",
     "CURATION_REQUIRED",
 }
+
+
+def canonical_plan_bytes(plan: dict[str, Any]) -> bytes:
+    """Return the canonical plan representation covered by plan_sha256."""
+    if not isinstance(plan, dict):
+        raise ValueError("Reparaturplan muss ein JSON-Objekt sein")
+    payload = dict(plan)
+    payload.pop("plan_sha256", None)
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def repair_plan_sha256(plan: dict[str, Any]) -> str:
+    """Hash a repair plan without recursively including its hash field."""
+    return hashlib.sha256(canonical_plan_bytes(plan)).hexdigest()
 
 
 def file_sha256(path: Path) -> str:
@@ -101,10 +123,10 @@ def _repair_action(
         return "CURATED_REPLACEMENT_AVAILABLE"
     if curation_action is not None:
         raise ValueError(f"Unbekannte Kuratierungsaktion: {curation_action}")
-    if isinstance(confirmed_text, str) and confirmed_text.strip():
-        return "CURATED_REPLACEMENT_AVAILABLE"
-    if confirmed_text is not None:
-        raise ValueError("Kuratierter Ersatztext darf nicht leer sein")
+    if confirmed_text is not None and (
+        not isinstance(confirmed_text, str) or not confirmed_text.strip()
+    ):
+        raise ValueError("Bestätigter Text darf nicht leer sein")
     return "CURATION_REQUIRED"
 
 
@@ -194,6 +216,7 @@ def build_repair_plan(
         )
         start = row["segment_start"]
         end = row["segment_end"]
+        density = row["chars_per_second"]
         if (
             isinstance(start, bool)
             or isinstance(end, bool)
@@ -205,6 +228,15 @@ def build_repair_plan(
             or float(end) < float(start)
         ):
             raise ValueError(f"Ungültige Segmentzeit für {drive_id}/{row['segment_id']}")
+        if density is not None and (
+            isinstance(density, bool)
+            or not isinstance(density, (int, float))
+            or not isfinite(float(density))
+            or float(density) < 0
+        ):
+            raise ValueError(
+                f"Ungültige Textdichte für {drive_id}/{row['segment_id']}"
+            )
         action = _repair_action(
             set(issue_list),
             row["confirmed_text"],
@@ -262,6 +294,9 @@ def build_repair_plan(
             "segment_start": float(start),
             "segment_end": float(end),
             "segment_text": row["segment_text"],
+            "chars_per_second": (
+                float(density) if density is not None else None
+            ),
             "flags": flags,
             "issue_types": issue_list,
             "note": row["note"],
@@ -296,9 +331,9 @@ def build_repair_plan(
             version_status = "MATCHED"
         recording["transcript_version_status"] = version_status
         recording_version_counts[version_status] += 1
-    return {
-        "schema_version": 2,
-        "plan_type": "confirmed_transcript_repair_dry_run",
+    plan = {
+        "schema_version": PLAN_SCHEMA_VERSION,
+        "plan_type": PLAN_TYPE,
         "summary": {
             "recording_count": len(recordings),
             "review_count": len(rows),
@@ -309,6 +344,8 @@ def build_repair_plan(
         },
         "recordings": recordings,
     }
+    plan["plan_sha256"] = repair_plan_sha256(plan)
+    return plan
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -333,7 +370,8 @@ def print_plan(plan: dict[str, Any], as_json: bool) -> None:
         "Reparatur-Dry-Run: "
         f"Aufnahmen={summary['recording_count']} "
         f"Entscheidungen={summary['review_count']} "
-        f"Aktionen={summary['review_action_counts']}"
+        f"Aktionen={summary['review_action_counts']} "
+        f"plan_sha256={plan['plan_sha256']}"
     )
     for recording in plan["recordings"]:
         print(
