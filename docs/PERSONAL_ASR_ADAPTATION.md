@@ -133,7 +133,8 @@ Textänderung von bestätigten Wortfehlern, Auslassungen oder Halluzinationen.
 Ist für einen Textfehler bereits eine ausdrückliche `REPLACE`-Kuratierung
 vorhanden, lautet die Aktion `CURATED_REPLACEMENT_AVAILABLE`; ohne diese Aktion
 bleibt sie ausdrücklich `CURATION_REQUIRED`, auch wenn die Hörentscheidung
-bereits bestätigten Belegtext enthält. Nachträgliche Kuratierung bleibt eine
+bereits bestätigten Belegtext enthält. Dieser Beleg bleibt unverändert erhalten;
+der segmentgenaue Ersatz wird separat gespeichert. Nachträgliche Kuratierung bleibt eine
 eigene Operation: `quality_reviews.py --curate-replacement TEXT` speichert einen
 bestätigten Ersatztext, während `--curate-delete` eine bestätigte Halluzination
 ausdrücklich als `CURATED_DELETION_AVAILABLE` kennzeichnet. Beide Varianten

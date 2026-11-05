@@ -35,6 +35,7 @@ class CurrentPlanMismatch(ValueError):
 
 
 def valid_sha256(value: object) -> bool:
+    """Return whether value is one lowercase hexadecimal SHA-256 digest."""
     return (
         isinstance(value, str)
         and len(value) == 64
@@ -87,10 +88,13 @@ def validate_plan_gate(plan: dict[str, Any]) -> set[str]:
             raise PlanFormatError(f"Doppelte Drive-ID im Plan: {drive_id}")
         drive_ids.add(drive_id)
         status = recording.get("status")
-        if status not in RECORDING_STATUSES:
+        if not isinstance(status, str) or status not in RECORDING_STATUSES:
             raise PlanFormatError(f"Ungültiger Aufnahmestatus für {drive_id}")
         version_status = recording.get("transcript_version_status")
-        if version_status not in {"MATCHED", "MISMATCH", "UNVERIFIED"}:
+        if (
+            not isinstance(version_status, str)
+            or version_status not in {"MATCHED", "MISMATCH", "UNVERIFIED"}
+        ):
             raise PlanFormatError(f"Ungültiger Versionsstatus für {drive_id}")
         if status == "CURATION_REQUIRED" or version_status != "MATCHED":
             holds.append(
@@ -104,10 +108,13 @@ def validate_plan_gate(plan: dict[str, Any]) -> set[str]:
             if not isinstance(review, dict):
                 raise PlanFormatError(f"{review_label} ist kein Objekt")
             action = review.get("action")
-            if action not in REPAIR_ACTIONS:
+            if not isinstance(action, str) or action not in REPAIR_ACTIONS:
                 raise PlanFormatError(f"Ungültige Aktion für {review_label}")
             review_version = review.get("transcript_version_status")
-            if review_version not in {"MATCHED", "MISMATCH", "UNVERIFIED"}:
+            if (
+                not isinstance(review_version, str)
+                or review_version not in {"MATCHED", "MISMATCH", "UNVERIFIED"}
+            ):
                 raise PlanFormatError(
                     f"Ungültiger Review-Versionsstatus für {review_label}"
                 )
@@ -152,6 +159,7 @@ def check_plan(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse the deliberately check-only preview command line."""
     parser = argparse.ArgumentParser(
         description=(
             "Eingefrorenen Reparaturplan gegen Hash, HOLD-Regeln und den "
@@ -164,13 +172,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Alle Prüfungen ausführen; erzeugt keine Verzeichnisse oder Dateien",
+        help=(
+            "Alle Prüfungen ausführen; schreibt keine Vorschauen, SQLite kann "
+            "jedoch -wal/-shm-Sidecar-Dateien anlegen"
+        ),
     )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the read-only preflight and map safety failures to stable exits."""
     args = parse_args(argv)
     if not args.check:
         print(

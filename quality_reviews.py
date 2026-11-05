@@ -57,6 +57,7 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
             confirmed_text TEXT,
             speaker_intent TEXT,
             curation_action TEXT,
+            curated_text TEXT,
             curated_at REAL,
             candidate_transcript_sha256 TEXT,
             transcript_sha256 TEXT,
@@ -81,6 +82,13 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
         if "curation_action" not in columns:
             db.execute(
                 "ALTER TABLE quality_reviews ADD COLUMN curation_action TEXT"
+            )
+        if "curated_text" not in columns:
+            db.execute("ALTER TABLE quality_reviews ADD COLUMN curated_text TEXT")
+            db.execute(
+                """UPDATE quality_reviews
+                   SET curated_text=confirmed_text
+                   WHERE curation_action='REPLACE' AND confirmed_text IS NOT NULL"""
             )
         if "curated_at" not in columns:
             db.execute("ALTER TABLE quality_reviews ADD COLUMN curated_at REAL")
@@ -384,7 +392,7 @@ def curate_quality_review(
     confirmed_text: str | None = None,
     now: float | None = None,
 ) -> bool:
-    """Add one immutable, version-bound curation to a confirmed decision."""
+    """Add immutable curation while preserving the hearing-decision evidence."""
     if action not in CURATION_ACTIONS:
         raise ValueError("Kuratierung muss REPLACE oder DELETE sein")
     if action == "REPLACE" and (
@@ -437,26 +445,24 @@ def curate_quality_review(
         raise ValueError("DELETE erfordert die Fehlerart HALLUCINATION")
 
     existing_action = row["curation_action"]
-    existing_text = row["confirmed_text"]
+    existing_evidence = row["confirmed_text"]
+    existing_replacement = row["curated_text"]
     if existing_action is not None:
-        if existing_action == action and existing_text == confirmed_text:
+        if existing_action == action and existing_replacement == confirmed_text:
             return False
         raise FileExistsError(
             "QA-Entscheidung besitzt bereits eine abweichende Kuratierung"
-        )
-    if existing_text is not None and existing_text != confirmed_text:
-        raise FileExistsError(
-            "QA-Entscheidung besitzt bereits einen abweichenden Ersatztext"
         )
 
     moment = time.time() if now is None else now
     with db:
         cursor = db.execute(
             """UPDATE quality_reviews
-               SET curation_action=?, confirmed_text=?, curated_at=?
+               SET curation_action=?, curated_text=?, curated_at=?
                WHERE drive_id=? AND segment_id=? AND candidate_hash=?
                  AND is_current=1 AND status='CONFIRMED'
                  AND curation_action IS NULL
+                 AND curated_text IS NULL
                  AND confirmed_text IS ?
                  AND candidate_transcript_sha256=? AND transcript_sha256=?""",
             (
@@ -466,14 +472,14 @@ def curate_quality_review(
                 drive_id,
                 segment_id,
                 fingerprint,
-                existing_text,
+                existing_evidence,
                 current_hash,
                 current_hash,
             ),
         )
         if cursor.rowcount != 1:
             concurrent = db.execute(
-                """SELECT status, curation_action, confirmed_text,
+                """SELECT status, curation_action, confirmed_text, curated_text,
                           candidate_transcript_sha256, transcript_sha256
                    FROM quality_reviews
                    WHERE drive_id=? AND segment_id=? AND candidate_hash=?
@@ -484,7 +490,7 @@ def curate_quality_review(
                 concurrent is not None
                 and concurrent["status"] == "CONFIRMED"
                 and concurrent["curation_action"] == action
-                and concurrent["confirmed_text"] == confirmed_text
+                and concurrent["curated_text"] == confirmed_text
                 and concurrent["candidate_transcript_sha256"] == current_hash
                 and concurrent["transcript_sha256"] == current_hash
             ):

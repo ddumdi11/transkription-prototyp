@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from build_transcript_previews import main
+from build_transcript_previews import PlanFormatError, main, validate_plan_gate
 from inbox_watcher import open_state
 from plan_transcript_repairs import build_repair_plan
 from publish_transcripts import prepare_publish_state
@@ -177,6 +177,27 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
 
         self.assertEqual(code, 2)
         self.assertIn("--check verwenden", stderr)
+
+    def test_non_string_gate_values_raise_plan_format_error(self):
+        self.add_review(["BOUNDARY_ERROR"])
+        base = build_repair_plan(self.db)
+        mutations = (
+            (base["recordings"][0], "status"),
+            (base["recordings"][0], "transcript_version_status"),
+            (base["recordings"][0]["reviews"][0], "action"),
+            (
+                base["recordings"][0]["reviews"][0],
+                "transcript_version_status",
+            ),
+        )
+
+        for target, field in mutations:
+            original = target[field]
+            target[field] = []
+            with self.subTest(field=field):
+                with self.assertRaises(PlanFormatError):
+                    validate_plan_gate(base)
+            target[field] = original
 
 
 if __name__ == "__main__":

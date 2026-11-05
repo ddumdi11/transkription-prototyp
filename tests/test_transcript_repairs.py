@@ -263,7 +263,7 @@ class TranscriptRepairPlanTest(unittest.TestCase):
             row["candidate_hash"],
             "REPLACE",
             transcript_sha256=transcript_sha256,
-            confirmed_text="Vollständiger bestätigter Text.",
+            confirmed_text="Präziser Ersatztext.",
             now=1040,
         )
 
@@ -271,6 +271,8 @@ class TranscriptRepairPlanTest(unittest.TestCase):
 
         review = plan["recordings"][0]["reviews"][0]
         self.assertEqual(review["action"], "CURATED_REPLACEMENT_AVAILABLE")
+        self.assertEqual(review["confirmed_text"], "Vollständiger bestätigter Text.")
+        self.assertEqual(review["replacement_text"], "Präziser Ersatztext.")
         self.assertEqual(
             plan["recordings"][0]["status"], "CURATED_CHANGES_AVAILABLE"
         )
@@ -327,6 +329,11 @@ class TranscriptRepairPlanTest(unittest.TestCase):
         self.assertEqual(stored_hash, repair_plan_sha256(plan))
         plan["plan_sha256"] = "0" * 64
         self.assertEqual(stored_hash, repair_plan_sha256(plan))
+        plan["recordings"][0]["reviews"][0]["confirmed_text"] = (
+            "Geänderter Belegtext"
+        )
+        self.assertNotEqual(stored_hash, repair_plan_sha256(plan))
+        plan["recordings"][0]["reviews"][0]["confirmed_text"] = None
         plan["summary"]["review_count"] += 1
         self.assertNotEqual(stored_hash, repair_plan_sha256(plan))
 

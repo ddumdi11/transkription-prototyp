@@ -352,7 +352,9 @@ Wortfehler, Auslassungen, Halluzinationen und sonstige bestätigte Textfehler
 bleiben bis zur ausdrücklichen Kuratierungsaktion `CURATION_REQUIRED`. Erst
 `--curate-replacement` macht einen Ersatz als
 `CURATED_REPLACEMENT_AVAILABLE` verfügbar; ein bei der Hörentscheidung
-gespeicherter Belegtext genügt dafür bewusst nicht. Bereits bestätigte
+gespeicherter Belegtext genügt dafür bewusst nicht und bleibt bei der späteren
+Kuratierung unverändert erhalten. Belegtext und segmentgenauer Ersatztext
+werden getrennt gespeichert. Bereits bestätigte
 Entscheidungen lassen sich getrennt und versionsgebunden kuratieren:
 
 ```bash
