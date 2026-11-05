@@ -130,10 +130,12 @@ aktuellen bestätigten Entscheidungen aus der vorhandenen Datenbank zusammen:
 Der Planer schreibt weder Schema noch Journalzustand und verändert keine
 Transkriptdatei. Er unterscheidet reine Segmentgrenzfehler ohne nötige
 Textänderung von bestätigten Wortfehlern, Auslassungen oder Halluzinationen.
-Ist für einen Textfehler bereits ein kuratierter Ersatztext vorhanden, lautet
-die Aktion `CURATED_REPLACEMENT_AVAILABLE`; fehlt er noch, bleibt sie
-ausdrücklich `CURATION_REQUIRED`. Nachträgliche Kuratierung bleibt eine eigene
-Operation: `quality_reviews.py --curate-replacement TEXT` speichert einen
+Ist für einen Textfehler bereits eine ausdrückliche `REPLACE`-Kuratierung
+vorhanden, lautet die Aktion `CURATED_REPLACEMENT_AVAILABLE`; ohne diese Aktion
+bleibt sie ausdrücklich `CURATION_REQUIRED`, auch wenn die Hörentscheidung
+bereits bestätigten Belegtext enthält. Dieser Beleg bleibt unverändert erhalten;
+der segmentgenaue Ersatz wird separat gespeichert. Nachträgliche Kuratierung bleibt eine
+eigene Operation: `quality_reviews.py --curate-replacement TEXT` speichert einen
 bestätigten Ersatztext, während `--curate-delete` eine bestätigte Halluzination
 ausdrücklich als `CURATED_DELETION_AVAILABLE` kennzeichnet. Beide Varianten
 erfordern Drive-ID, Segment-ID und Kandidatenhash, sind bei identischer
@@ -147,6 +149,14 @@ gegenwärtigen Datei (`MATCHED` oder `MISMATCH`). Ältere Entscheidungen ohne
 gespeicherten Versionshash bleiben sichtbar, werden aber als `UNVERIFIED`
 ausgewiesen. Nur `MATCHED` ist für eine spätere Reparatur versionssicher
 freigegeben.
+
+Schema 3 ergänzt den deterministischen `plan_sha256` und die zur späteren
+Kandidatenprüfung benötigte Textdichte. Ein eingefrorener Plan kann mit
+`build_transcript_previews.py --check` vollständig schreibfrei geprüft werden.
+Der erwartete Plan-Hash muss ausdrücklich mitgegeben werden; außerdem wird der
+Plan aus der Datenbank neu aufgebaut. Enthält er auch nur einen HOLD-Fall
+(`CURATION_REQUIRED`, `MISMATCH` oder `UNVERIFIED`), bleibt der gesamte Lauf
+gesperrt. Der Sicherheitsbaustein erzeugt noch keine Vorschaufassung.
 
 Für bestätigte Entscheidungen aus der Zeit vor dieser Hash-Bindung prüft
 `bind_legacy_quality_reviews.py` im Standardlauf rein lesend eine konservative

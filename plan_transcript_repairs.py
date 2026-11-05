@@ -16,6 +16,8 @@ from quality_reviews import ISSUE_TYPES, open_readonly_state
 
 
 DEFAULT_STATE = Path(".inbox-watcher/state.sqlite3")
+PLAN_SCHEMA_VERSION = 3
+PLAN_TYPE = "confirmed_transcript_repair_dry_run"
 TEXT_ISSUES = {"WORD_ERROR", "OMISSION", "HALLUCINATION", "OTHER"}
 REPAIR_ACTIONS = {
     "NO_TEXT_CHANGE",
@@ -30,7 +32,28 @@ RECORDING_STATUSES = {
 }
 
 
+def canonical_plan_bytes(plan: dict[str, Any]) -> bytes:
+    """Return the canonical plan representation covered by plan_sha256."""
+    if not isinstance(plan, dict):
+        raise ValueError("Reparaturplan muss ein JSON-Objekt sein")
+    payload = dict(plan)
+    payload.pop("plan_sha256", None)
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def repair_plan_sha256(plan: dict[str, Any]) -> str:
+    """Hash a repair plan without recursively including its hash field."""
+    return hashlib.sha256(canonical_plan_bytes(plan)).hexdigest()
+
+
 def file_sha256(path: Path) -> str:
+    """Hash one transcript file without loading it completely into memory."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -38,7 +61,8 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _require_tables(db: sqlite3.Connection) -> tuple[bool, bool]:
+def _require_tables(db: sqlite3.Connection) -> tuple[bool, bool, bool]:
+    """Require pipeline tables and report optional QA schema capabilities."""
     required = {"quality_reviews", "transcription_jobs", "published_transcripts"}
     rows = db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
@@ -57,10 +81,12 @@ def _require_tables(db: sqlite3.Connection) -> tuple[bool, bool]:
     return (
         "transcript_sha256" in quality_columns,
         "curation_action" in quality_columns,
+        "curated_text" in quality_columns,
     )
 
 
 def _string_list(raw: object, label: str, *, allow_empty: bool) -> list[str]:
+    """Decode one canonical sorted list stored as JSON text."""
     if not isinstance(raw, str):
         raise ValueError(f"{label} ist kein JSON-Text")
     try:
@@ -79,9 +105,11 @@ def _string_list(raw: object, label: str, *, allow_empty: bool) -> list[str]:
 
 def _repair_action(
     issue_types: set[str],
-    confirmed_text: object,
+    evidence_text: object,
     curation_action: object,
+    replacement_text: object,
 ) -> str:
+    """Derive the only permitted repair action from evidence and curation."""
     if not issue_types & TEXT_ISSUES:
         if curation_action is not None:
             raise ValueError("Reiner Grenzfehler trägt unerwartete Textkuratierung")
@@ -90,25 +118,28 @@ def _repair_action(
         # curation action that text must never become a replacement implicitly.
         return "NO_TEXT_CHANGE"
     if curation_action == "DELETE":
-        if confirmed_text is not None:
+        if replacement_text is not None:
             raise ValueError("DELETE-Kuratierung trägt unerwarteten Ersatztext")
         if "HALLUCINATION" not in issue_types:
             raise ValueError("DELETE-Kuratierung erfordert HALLUCINATION")
         return "CURATED_DELETION_AVAILABLE"
     if curation_action == "REPLACE":
-        if not isinstance(confirmed_text, str) or not confirmed_text.strip():
+        if not isinstance(replacement_text, str) or not replacement_text.strip():
             raise ValueError("REPLACE-Kuratierung benötigt einen Ersatztext")
         return "CURATED_REPLACEMENT_AVAILABLE"
     if curation_action is not None:
         raise ValueError(f"Unbekannte Kuratierungsaktion: {curation_action}")
-    if isinstance(confirmed_text, str) and confirmed_text.strip():
-        return "CURATED_REPLACEMENT_AVAILABLE"
-    if confirmed_text is not None:
-        raise ValueError("Kuratierter Ersatztext darf nicht leer sein")
+    if replacement_text is not None:
+        raise ValueError("Ersatztext ohne Kuratierungsaktion")
+    if evidence_text is not None and (
+        not isinstance(evidence_text, str) or not evidence_text.strip()
+    ):
+        raise ValueError("Bestätigter Text darf nicht leer sein")
     return "CURATION_REQUIRED"
 
 
 def _recording_status(actions: Iterable[str]) -> str:
+    """Collapse review actions into one fail-closed recording status."""
     present = set(actions)
     if "CURATION_REQUIRED" in present:
         return "CURATION_REQUIRED"
@@ -125,7 +156,9 @@ def _confirmed_rows(
     selected_ids: set[str] | None,
     has_transcript_binding: bool,
     has_curation_action: bool,
+    has_curated_text: bool,
 ) -> list[sqlite3.Row]:
+    """Read current confirmed decisions with legacy-schema fallbacks."""
     clauses = ["q.is_current=1", "q.status='CONFIRMED'"]
     values: list[str] = []
     if selected_ids:
@@ -136,9 +169,19 @@ def _confirmed_rows(
         "q.transcript_sha256" if has_transcript_binding else "NULL"
     )
     curation = "q.curation_action" if has_curation_action else "NULL"
+    if has_curated_text:
+        replacement = "q.curated_text"
+    elif has_curation_action:
+        replacement = (
+            "CASE WHEN q.curation_action='REPLACE' "
+            "THEN q.confirmed_text ELSE NULL END"
+        )
+    else:
+        replacement = "NULL"
     return list(db.execute(
         f"""SELECT q.*, {binding} AS decision_transcript_sha256,
                    {curation} AS repair_curation_action,
+                   {replacement} AS repair_replacement_text,
                    j.transcript_path,
                    p.remote_path, p.remote_id, p.published_at
             FROM quality_reviews q
@@ -154,7 +197,11 @@ def build_repair_plan(
     db: sqlite3.Connection, selected_ids: set[str] | None = None
 ) -> dict[str, Any]:
     """Build a deterministic repair plan from current confirmed QA rows."""
-    has_transcript_binding, has_curation_action = _require_tables(db)
+    (
+        has_transcript_binding,
+        has_curation_action,
+        has_curated_text,
+    ) = _require_tables(db)
     requested = set(selected_ids or ())
     if any(not isinstance(value, str) or not value.strip() for value in requested):
         raise ValueError("Drive-ID darf nicht leer sein")
@@ -163,6 +210,7 @@ def build_repair_plan(
         requested or None,
         has_transcript_binding,
         has_curation_action,
+        has_curated_text,
     )
     found_ids = {str(row["drive_id"]) for row in rows}
     missing_ids = sorted(requested - found_ids)
@@ -194,6 +242,7 @@ def build_repair_plan(
         )
         start = row["segment_start"]
         end = row["segment_end"]
+        density = row["chars_per_second"]
         if (
             isinstance(start, bool)
             or isinstance(end, bool)
@@ -205,10 +254,20 @@ def build_repair_plan(
             or float(end) < float(start)
         ):
             raise ValueError(f"Ungültige Segmentzeit für {drive_id}/{row['segment_id']}")
+        if density is not None and (
+            isinstance(density, bool)
+            or not isinstance(density, (int, float))
+            or not isfinite(float(density))
+            or float(density) < 0
+        ):
+            raise ValueError(
+                f"Ungültige Textdichte für {drive_id}/{row['segment_id']}"
+            )
         action = _repair_action(
             set(issue_list),
             row["confirmed_text"],
             row["repair_curation_action"],
+            row["repair_replacement_text"],
         )
         action_counts[action] += 1
 
@@ -262,10 +321,14 @@ def build_repair_plan(
             "segment_start": float(start),
             "segment_end": float(end),
             "segment_text": row["segment_text"],
+            "chars_per_second": (
+                float(density) if density is not None else None
+            ),
             "flags": flags,
             "issue_types": issue_list,
             "note": row["note"],
             "confirmed_text": row["confirmed_text"],
+            "replacement_text": row["repair_replacement_text"],
             "curation_action": row["repair_curation_action"],
             "speaker_intent": row["speaker_intent"],
             "decision_transcript_sha256": decision_hash,
@@ -296,9 +359,9 @@ def build_repair_plan(
             version_status = "MATCHED"
         recording["transcript_version_status"] = version_status
         recording_version_counts[version_status] += 1
-    return {
-        "schema_version": 2,
-        "plan_type": "confirmed_transcript_repair_dry_run",
+    plan = {
+        "schema_version": PLAN_SCHEMA_VERSION,
+        "plan_type": PLAN_TYPE,
         "summary": {
             "recording_count": len(recordings),
             "review_count": len(rows),
@@ -309,9 +372,12 @@ def build_repair_plan(
         },
         "recordings": recordings,
     }
+    plan["plan_sha256"] = repair_plan_sha256(plan)
+    return plan
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse read-only transcript-repair planning arguments."""
     parser = argparse.ArgumentParser(
         description=(
             "Bestätigte QA-Entscheidungen rein lesend zu einem "
@@ -325,6 +391,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def print_plan(plan: dict[str, Any], as_json: bool) -> None:
+    """Print the deterministic plan as JSON or a compact human summary."""
     if as_json:
         print(json.dumps(plan, ensure_ascii=False, indent=2, allow_nan=False))
         return
@@ -333,7 +400,8 @@ def print_plan(plan: dict[str, Any], as_json: bool) -> None:
         "Reparatur-Dry-Run: "
         f"Aufnahmen={summary['recording_count']} "
         f"Entscheidungen={summary['review_count']} "
-        f"Aktionen={summary['review_action_counts']}"
+        f"Aktionen={summary['review_action_counts']} "
+        f"plan_sha256={plan['plan_sha256']}"
     )
     for recording in plan["recordings"]:
         print(
@@ -350,6 +418,7 @@ def print_plan(plan: dict[str, Any], as_json: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Build one repair plan from a read-only pipeline database."""
     args = parse_args(argv)
     try:
         with open_readonly_state(args.state) as db:

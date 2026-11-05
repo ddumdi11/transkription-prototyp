@@ -219,7 +219,8 @@ class QualityReviewsTest(unittest.TestCase):
         self.assertFalse(repeated)
         row = current_quality_reviews(self.db)[0]
         self.assertEqual(row["curation_action"], "REPLACE")
-        self.assertEqual(row["confirmed_text"], "Vollständiger bestätigter Text.")
+        self.assertIsNone(row["confirmed_text"])
+        self.assertEqual(row["curated_text"], "Vollständiger bestätigter Text.")
         self.assertEqual(row["curated_at"], 1200)
 
         with self.assertRaisesRegex(FileExistsError, "abweichende Kuratierung"):
@@ -228,6 +229,81 @@ class QualityReviewsTest(unittest.TestCase):
                 transcript_sha256=TRANSCRIPT_SHA256,
                 confirmed_text="Anderer Text.", now=1400,
             )
+
+    def test_replacement_is_separate_from_hearing_evidence(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["OMISSION"],
+            confirmed_text="Längerer Belegtext aus dem Hörfenster.",
+            now=1100,
+        )
+
+        changed = curate_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            confirmed_text="Präziser Ersatz nur für dieses Segment.",
+            now=1200,
+        )
+
+        self.assertTrue(changed)
+        row = current_quality_reviews(self.db)[0]
+        self.assertEqual(
+            row["confirmed_text"], "Längerer Belegtext aus dem Hörfenster."
+        )
+        self.assertEqual(
+            row["curated_text"], "Präziser Ersatz nur für dieses Segment."
+        )
+
+    def test_schema_migration_preserves_legacy_replacement(self):
+        item = candidate()
+        fingerprint = candidate_hash(item, TRANSCRIPT_SHA256)
+        sync_quality_candidates(
+            self.db, "drive-id", [item],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        decide_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "CONFIRMED",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            issue_types=["OMISSION"], now=1100,
+        )
+        curate_quality_review(
+            self.db, "drive-id", "segment-000001", fingerprint, "REPLACE",
+            transcript_sha256=TRANSCRIPT_SHA256,
+            confirmed_text="Alter gemeinsam gespeicherter Ersatz.", now=1200,
+        )
+        self.db.execute(
+            "UPDATE quality_reviews SET confirmed_text=curated_text"
+        )
+        columns = [
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(quality_reviews)")
+            if str(row[1]) != "curated_text"
+        ]
+        joined = ", ".join(columns)
+        self.db.execute(
+            f"CREATE TABLE legacy_quality_reviews AS "
+            f"SELECT {joined} FROM quality_reviews"
+        )
+        self.db.execute("DROP TABLE quality_reviews")
+        self.db.execute(
+            "ALTER TABLE legacy_quality_reviews RENAME TO quality_reviews"
+        )
+        self.db.commit()
+
+        ensure_quality_state(self.db)
+
+        row = current_quality_reviews(self.db)[0]
+        self.assertEqual(row["confirmed_text"], "Alter gemeinsam gespeicherter Ersatz.")
+        self.assertEqual(row["curated_text"], "Alter gemeinsam gespeicherter Ersatz.")
 
     def test_concurrent_identical_curation_is_idempotent(self):
         item = candidate()
@@ -257,7 +333,7 @@ class QualityReviewsTest(unittest.TestCase):
                     self.inner.execute(
                         """UPDATE quality_reviews
                            SET curation_action='REPLACE',
-                               confirmed_text='Vollständiger bestätigter Text.',
+                               curated_text='Vollständiger bestätigter Text.',
                                curated_at=1150
                            WHERE drive_id='drive-id'
                              AND segment_id='segment-000001'"""
@@ -285,6 +361,7 @@ class QualityReviewsTest(unittest.TestCase):
         self.assertFalse(changed)
         row = current_quality_reviews(self.db)[0]
         self.assertEqual(row["curation_action"], "REPLACE")
+        self.assertEqual(row["curated_text"], "Vollständiger bestätigter Text.")
         self.assertEqual(row["curated_at"], 1150)
 
     def test_delete_curation_requires_confirmed_hallucination(self):

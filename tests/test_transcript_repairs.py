@@ -6,7 +6,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from inbox_watcher import open_state
-from plan_transcript_repairs import build_repair_plan, main
+from plan_transcript_repairs import (
+    build_repair_plan,
+    main,
+    repair_plan_sha256,
+)
 from publish_transcripts import prepare_publish_state
 from quality_reviews import (
     candidate_hash,
@@ -101,7 +105,7 @@ class TranscriptRepairPlanTest(unittest.TestCase):
             )
         self.db.commit()
 
-    def test_classifies_boundary_curation_and_available_text(self):
+    def test_classifies_boundary_and_requires_explicit_curation(self):
         self.add_review(
             "one",
             "segment-000001",
@@ -123,20 +127,26 @@ class TranscriptRepairPlanTest(unittest.TestCase):
             plan["summary"]["review_action_counts"],
             {
                 "CURATED_DELETION_AVAILABLE": 0,
-                "CURATED_REPLACEMENT_AVAILABLE": 1,
-                "CURATION_REQUIRED": 1,
+                "CURATED_REPLACEMENT_AVAILABLE": 0,
+                "CURATION_REQUIRED": 2,
                 "NO_TEXT_CHANGE": 1,
             },
         )
         statuses = {row["drive_id"]: row["status"] for row in plan["recordings"]}
         self.assertEqual(statuses["one"], "NO_TEXT_CHANGE")
         self.assertEqual(statuses["two"], "CURATION_REQUIRED")
-        self.assertEqual(statuses["three"], "CURATED_CHANGES_AVAILABLE")
+        self.assertEqual(statuses["three"], "CURATION_REQUIRED")
         self.assertEqual(len(plan["recordings"][0]["transcript_sha256"]), 64)
         self.assertEqual(
             plan["summary"]["review_version_counts"],
             {"MATCHED": 3, "MISMATCH": 0, "UNVERIFIED": 0},
         )
+        review = next(
+            row["reviews"][0]
+            for row in plan["recordings"]
+            if row["drive_id"] == "three"
+        )
+        self.assertEqual(review["chars_per_second"], 105.0)
 
     def test_groups_multiple_reviews_and_ignores_pending(self):
         self.add_review("one", "segment-000001", ["BOUNDARY_ERROR"])
@@ -235,6 +245,38 @@ class TranscriptRepairPlanTest(unittest.TestCase):
             plan["recordings"][0]["status"], "CURATED_CHANGES_AVAILABLE"
         )
 
+    def test_explicit_replacement_is_available(self):
+        self.add_review(
+            "one",
+            "segment-000001",
+            ["WORD_ERROR"],
+            confirmed_text="Vollständiger bestätigter Text.",
+        )
+        row = self.db.execute(
+            "SELECT candidate_hash FROM quality_reviews WHERE drive_id='one'"
+        ).fetchone()
+        transcript_sha256 = transcript_sha256_for_drive(self.db, "one")
+        curate_quality_review(
+            self.db,
+            "one",
+            "segment-000001",
+            row["candidate_hash"],
+            "REPLACE",
+            transcript_sha256=transcript_sha256,
+            confirmed_text="Präziser Ersatztext.",
+            now=1040,
+        )
+
+        plan = build_repair_plan(self.db)
+
+        review = plan["recordings"][0]["reviews"][0]
+        self.assertEqual(review["action"], "CURATED_REPLACEMENT_AVAILABLE")
+        self.assertEqual(review["confirmed_text"], "Vollständiger bestätigter Text.")
+        self.assertEqual(review["replacement_text"], "Präziser Ersatztext.")
+        self.assertEqual(
+            plan["recordings"][0]["status"], "CURATED_CHANGES_AVAILABLE"
+        )
+
     def test_uncurated_review_takes_precedence_over_curated_deletion(self):
         self.add_review("one", "segment-000001", ["HALLUCINATION"])
         row = self.db.execute(
@@ -276,6 +318,24 @@ class TranscriptRepairPlanTest(unittest.TestCase):
         self.assertIsNone(
             plan["recordings"][0]["reviews"][0]["decision_transcript_sha256"]
         )
+
+    def test_schema_three_plan_hash_excludes_only_its_own_field(self):
+        self.add_review("one", "segment-000001", ["BOUNDARY_ERROR"])
+
+        plan = build_repair_plan(self.db)
+        stored_hash = plan["plan_sha256"]
+
+        self.assertEqual(plan["schema_version"], 3)
+        self.assertEqual(stored_hash, repair_plan_sha256(plan))
+        plan["plan_sha256"] = "0" * 64
+        self.assertEqual(stored_hash, repair_plan_sha256(plan))
+        plan["recordings"][0]["reviews"][0]["confirmed_text"] = (
+            "Geänderter Belegtext"
+        )
+        self.assertNotEqual(stored_hash, repair_plan_sha256(plan))
+        plan["recordings"][0]["reviews"][0]["confirmed_text"] = None
+        plan["summary"]["review_count"] += 1
+        self.assertNotEqual(stored_hash, repair_plan_sha256(plan))
 
 
 if __name__ == "__main__":

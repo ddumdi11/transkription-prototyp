@@ -349,8 +349,12 @@ aktuellen lokalen Datei: `MATCHED` ist versionssicher, `MISMATCH` verweist auf
 eine inzwischen geänderte Datei und ältere Entscheidungen ohne Hash erscheinen
 als `UNVERIFIED`. Reine Grenzfehler werden als `NO_TEXT_CHANGE` ausgewiesen.
 Wortfehler, Auslassungen, Halluzinationen und sonstige bestätigte Textfehler
-werden mit hinterlegtem Korrekturtext als `CURATED_REPLACEMENT_AVAILABLE`
-ausgewiesen; ohne ihn bleiben sie `CURATION_REQUIRED`. Bereits bestätigte
+bleiben bis zur ausdrücklichen Kuratierungsaktion `CURATION_REQUIRED`. Erst
+`--curate-replacement` macht einen Ersatz als
+`CURATED_REPLACEMENT_AVAILABLE` verfügbar; ein bei der Hörentscheidung
+gespeicherter Belegtext genügt dafür bewusst nicht und bleibt bei der späteren
+Kuratierung unverändert erhalten. Belegtext und segmentgenauer Ersatztext
+werden getrennt gespeichert. Bereits bestätigte
 Entscheidungen lassen sich getrennt und versionsgebunden kuratieren:
 
 ```bash
@@ -363,6 +367,26 @@ Entscheidungen lassen sich getrennt und versionsgebunden kuratieren:
   --drive-id DRIVE_ID --segment-id SEGMENT_ID \
   --candidate-hash KANDIDATEN_HASH --curate-delete
 ```
+
+Der Reparaturplan verwendet Schema 3 und bindet seinen vollständigen Inhalt
+über `plan_sha256`. Vor einer späteren Vorschauerzeugung lässt sich ein
+eingefrorener Plan vollständig schreibfrei gegen den aktuellen Zustand prüfen:
+
+```bash
+.venv/bin/python plan_transcript_repairs.py \
+  --drive-id DRIVE_ID --json > /tmp/reparaturplan.json
+
+.venv/bin/python build_transcript_previews.py \
+  --plan /tmp/reparaturplan.json \
+  --expect-plan-sha256 PLAN_SHA256 \
+  --check --json
+```
+
+`--check` akzeptiert nur einen unveränderten Schema-3-Plan, ausschließlich
+versionsgebundene `MATCHED`-Reviews und einen aktuellen Datenbankzustand, der
+denselben Plan reproduziert. Ein einziger `CURATION_REQUIRED`, `MISMATCH` oder
+`UNVERIFIED`-Eintrag sperrt den gesamten Lauf. Dieser erste Sicherheitsbaustein
+schreibt ausdrücklich noch keine Vorschaufassung.
 
 `--curate-delete` ist eine ausdrückliche Löschentscheidung für eine bestätigte
 Halluzination und wird im Plan als `CURATED_DELETION_AVAILABLE` geführt. Eine
