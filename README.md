@@ -347,9 +347,12 @@ registrieren:
 
 Ein passender automatischer Kandidat wird dabei dauerhaft als manuell gewählt
 markiert; eine passende frühere manuelle Entscheidung wird reaktiviert. Die
-Segmentdatei muss zum gegenwärtigen Transkript passen; abweichendes
-Segmentmaterial wird abgelehnt. Der ausgegebene Kandidatenhash bindet die
-spätere Entscheidung an genau diese Fassung.
+Segmentdatei muss über ihren eingebetteten Transkripthash zum gegenwärtigen
+Transkript passen. Existiert für dieselbe Transkriptversion bereits ein aktueller
+Kandidat, werden zusätzlich Segmenttext und -grenzen verglichen und Abweichungen
+abgelehnt. Bei der ersten Registrierung gibt es dafür keinen Vergleichsdatensatz;
+der ausgegebene Kandidatenhash bindet Text, Grenzen und die spätere Entscheidung
+an genau diese Fassung.
 
 Bestätigte Hörentscheidungen lassen sich anschließend schreibgeschützt zu
 einem Reparaturplan zusammenführen:

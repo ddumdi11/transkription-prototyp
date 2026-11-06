@@ -116,8 +116,11 @@ nicht erfasstes Segment wird einzeln und versionsgebunden registriert:
 Die manuelle Registrierung ersetzt weder andere Kandidaten noch Entscheidungen.
 Ein passender automatischer Kandidat wird als manuell gewählt markiert; eine
 passende historische manuelle Entscheidung wird reaktiviert. Die Registrierung
-bricht bei einer veralteten Segmentdatei oder abweichendem Segmentmaterial ab
-und gibt den Kandidatenhash für die anschließende Entscheidung aus.
+bricht ab, wenn der eingebettete Transkripthash veraltet ist. Existiert für
+dieselbe Transkriptversion bereits ein aktueller Kandidat, werden außerdem
+Segmenttext und -grenzen verglichen und Abweichungen abgelehnt. Bei der ersten
+Registrierung fehlt ein solcher Vergleichsdatensatz; Text und Grenzen werden
+dann durch den ausgegebenen Kandidatenhash an die spätere Entscheidung gebunden.
 
 Eine menschliche Entscheidung ist immer an Drive-ID, Segment-ID und den
 angezeigten SHA256-Fingerabdruck des konkreten Kandidaten gebunden. Bestätigte
