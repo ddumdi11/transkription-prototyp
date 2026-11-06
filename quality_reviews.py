@@ -226,12 +226,17 @@ def sync_quality_candidates(
         )
         for material, fingerprint in prepared:
             manual = db.execute(
-                """SELECT 1 FROM quality_reviews
+                """SELECT * FROM quality_reviews
                    WHERE drive_id=? AND segment_id=? AND is_current=1
                      AND candidate_origin='MANUAL'""",
                 (drive_id, material["id"]),
             ).fetchone()
             if manual is not None:
+                if not _stored_segment_material_matches(manual, material):
+                    raise ValueError(
+                        "Aktueller manueller QA-Kandidat enthält "
+                        "abweichendes Segmentmaterial"
+                    )
                 continue
             existing = db.execute(
                 """SELECT 1 FROM quality_reviews
@@ -339,6 +344,13 @@ def register_manual_quality_candidate(
 
     db.execute("BEGIN IMMEDIATE")
     try:
+        db.execute(
+            """UPDATE quality_reviews SET is_current=0
+               WHERE drive_id=? AND is_current=1
+                 AND (candidate_transcript_sha256 IS NULL
+                      OR candidate_transcript_sha256<>?)""",
+            (drive_id, current_hash),
+        )
         existing = db.execute(
             """SELECT * FROM quality_reviews
                WHERE drive_id=? AND segment_id=? AND is_current=1""",
@@ -346,52 +358,45 @@ def register_manual_quality_candidate(
         ).fetchone()
         if existing is not None:
             if existing["candidate_transcript_sha256"] != current_hash:
+                raise RuntimeError(
+                    "Aktueller QA-Kandidat hat nach Versionsbereinigung "
+                    "eine unerwartete Transkriptversion"
+                )
+            if not _stored_segment_material_matches(existing, material):
+                raise ValueError(
+                    "Aktueller QA-Kandidat enthält abweichendes "
+                    "Segmentmaterial"
+                )
+            changed = existing["candidate_origin"] != "MANUAL"
+            if changed:
                 db.execute(
-                    """UPDATE quality_reviews SET is_current=0
+                    """UPDATE quality_reviews
+                       SET candidate_origin='MANUAL', last_detected_at=?
                        WHERE drive_id=? AND segment_id=? AND candidate_hash=?
                          AND is_current=1""",
                     (
+                        moment,
                         drive_id,
                         existing["segment_id"],
                         existing["candidate_hash"],
                     ),
                 )
-            else:
-                if not _stored_segment_material_matches(existing, material):
-                    raise ValueError(
-                        "Aktueller QA-Kandidat enthält abweichendes "
-                        "Segmentmaterial"
-                    )
-                changed = existing["candidate_origin"] != "MANUAL"
-                if changed:
-                    db.execute(
-                        """UPDATE quality_reviews
-                           SET candidate_origin='MANUAL', last_detected_at=?
-                           WHERE drive_id=? AND segment_id=? AND candidate_hash=?
-                             AND is_current=1""",
-                        (
-                            moment,
-                            drive_id,
-                            existing["segment_id"],
-                            existing["candidate_hash"],
-                        ),
-                    )
-                row = db.execute(
-                    """SELECT * FROM quality_reviews
-                       WHERE drive_id=? AND segment_id=? AND candidate_hash=?
-                         AND is_current=1""",
-                    (
-                        drive_id,
-                        existing["segment_id"],
-                        existing["candidate_hash"],
-                    ),
-                ).fetchone()
-                if row is None:
-                    raise RuntimeError(
-                        "Manuelle Markierung des QA-Kandidaten fehlgeschlagen"
-                    )
-                db.commit()
-                return row, changed
+            row = db.execute(
+                """SELECT * FROM quality_reviews
+                   WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                     AND is_current=1""",
+                (
+                    drive_id,
+                    existing["segment_id"],
+                    existing["candidate_hash"],
+                ),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError(
+                    "Manuelle Markierung des QA-Kandidaten fehlgeschlagen"
+                )
+            db.commit()
+            return row, changed
 
         historical = list(db.execute(
             """SELECT * FROM quality_reviews

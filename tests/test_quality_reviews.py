@@ -180,6 +180,43 @@ class QualityReviewsTest(unittest.TestCase):
             "manual_selection", json.loads(row["flags_json"])
         )
 
+    def test_automatic_sync_rejects_changed_manual_segment_material(self):
+        """Reject changed same-version detector material for a manual row."""
+        manual = candidate()
+        manual["flags"] = sorted(
+            set(manual["flags"]) | {"manual_selection"}
+        )
+        register_manual_quality_candidate(
+            self.db,
+            "drive-id",
+            manual,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256,
+            now=1000,
+        )
+
+        for field, value in (
+            ("text", "Abweichender Segmenttext."),
+            ("end", 11.0),
+        ):
+            with self.subTest(field=field):
+                changed = candidate()
+                changed[field] = value
+                with self.assertRaisesRegex(ValueError, "Segmentmaterial"):
+                    sync_quality_candidates(
+                        self.db,
+                        "drive-id",
+                        [changed],
+                        transcript_sha256=TRANSCRIPT_SHA256,
+                        segment_transcript_sha256=TRANSCRIPT_SHA256,
+                        now=1100,
+                    )
+
+        current = current_quality_reviews(self.db)
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["candidate_origin"], "MANUAL")
+        self.assertEqual(current[0]["segment_text"], manual["text"])
+
     def test_manual_registration_reuses_current_automatic_candidate(self):
         """Promote matching automatic evidence to a durable manual finding."""
         automatic = candidate()
@@ -441,6 +478,82 @@ class QualityReviewsTest(unittest.TestCase):
         self.assertEqual(
             [(row["candidate_hash"], row["is_current"]) for row in history],
             [(old["candidate_hash"], 0), (current["candidate_hash"], 1)],
+        )
+
+    def test_manual_registration_retires_all_old_rows_for_drive(self):
+        """Retire every current old-version row for the recording."""
+        first = candidate()
+        second = candidate("Ein zweiter auffälliger Segmenttext.")
+        second.update({
+            "id": "segment-000002",
+            "start": 20.0,
+            "end": 20.5,
+        })
+        sync_quality_candidates(
+            self.db,
+            "drive-id",
+            [first, second],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256,
+            now=1000,
+        )
+        self.db.execute(
+            """UPDATE quality_reviews SET candidate_transcript_sha256=NULL
+               WHERE drive_id='drive-id' AND segment_id='segment-000002'"""
+        )
+        self.db.commit()
+        selected = {
+            "id": "segment-000003",
+            "start": 30.0,
+            "end": 35.0,
+            "raw_text": " Neuer normaler Segmenttext. ",
+            "text": "Neuer normaler Segmenttext.",
+        }
+        manual = manual_candidate_from_payload(
+            segment_payload(
+                selected,
+                transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+            ),
+            "segment-000003",
+        )
+
+        current, changed = register_manual_quality_candidate(
+            self.db,
+            "drive-id",
+            manual,
+            transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+            segment_transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+            now=1100,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(current["segment_id"], "segment-000003")
+        current_rows = current_quality_reviews(self.db)
+        self.assertEqual(
+            [row["segment_id"] for row in current_rows],
+            ["segment-000003"],
+        )
+        old_rows = list(self.db.execute(
+            """SELECT segment_id, is_current, candidate_transcript_sha256
+               FROM quality_reviews
+               WHERE drive_id='drive-id' AND segment_id IN (
+                   'segment-000001', 'segment-000002'
+               )
+               ORDER BY segment_id"""
+        ))
+        self.assertEqual(
+            [
+                (
+                    row["segment_id"],
+                    row["is_current"],
+                    row["candidate_transcript_sha256"],
+                )
+                for row in old_rows
+            ],
+            [
+                ("segment-000001", 0, TRANSCRIPT_SHA256),
+                ("segment-000002", 0, None),
+            ],
         )
 
     def test_confirmation_is_exact_and_idempotent(self):
