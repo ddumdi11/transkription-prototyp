@@ -345,9 +345,11 @@ registrieren:
   --segment-id segment-000002
 ```
 
-Vorhandene automatische oder manuelle Kandidaten werden dabei nicht ersetzt.
-Die Segmentdatei muss zum gegenwärtigen Transkript passen; der ausgegebene
-Kandidatenhash bindet die spätere Entscheidung an genau diese Fassung.
+Ein passender automatischer Kandidat wird dabei dauerhaft als manuell gewählt
+markiert; eine passende frühere manuelle Entscheidung wird reaktiviert. Die
+Segmentdatei muss zum gegenwärtigen Transkript passen; abweichendes
+Segmentmaterial wird abgelehnt. Der ausgegebene Kandidatenhash bindet die
+spätere Entscheidung an genau diese Fassung.
 
 Bestätigte Hörentscheidungen lassen sich anschließend schreibgeschützt zu
 einem Reparaturplan zusammenführen:

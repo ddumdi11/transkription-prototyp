@@ -134,8 +134,9 @@ es nicht markiert hat:
 
 Diese Einzelregistrierung ist an den Transkripthash der Segmentdatei gebunden,
 bleibt neben automatischen Kandidaten erhalten und verändert weder Transkript
-noch Audio. Ein bereits aktueller Kandidat für dasselbe Segment wird
-wiederverwendet.
+noch Audio. Ein passender automatischer Kandidat wird dauerhaft als manuell
+gewählt markiert; eine passende historische manuelle Entscheidung wird
+reaktiviert. Abweichendes Segmentmaterial wird nicht wiederverwendet.
 
 ```bash
 .venv/bin/python plan_transcript_repairs.py

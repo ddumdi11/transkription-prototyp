@@ -284,7 +284,13 @@ def manual_candidate_from_payload(
     """Build one explicit review candidate from validated segment metadata."""
     if not isinstance(segment_id, str) or not segment_id.strip():
         raise ValueError("Manuelle Segment-ID darf nicht leer sein")
-    candidates = find_suspicious_segments(payload, selected_ids={segment_id})
+    candidates = [
+        candidate
+        for candidate in find_suspicious_segments(
+            payload, selected_ids={segment_id}
+        )
+        if candidate["id"] == segment_id
+    ]
     if len(candidates) != 1:
         raise ValueError(f"Segment-ID nicht eindeutig gefunden: {segment_id}")
     candidate = dict(candidates[0])
@@ -292,6 +298,17 @@ def manual_candidate_from_payload(
         set(candidate["flags"]) | {MANUAL_REVIEW_FLAG}
     )
     return candidate
+
+
+def _stored_segment_material_matches(
+    row: sqlite3.Row, material: dict[str, Any]
+) -> bool:
+    """Check identity fields that are persisted for one reviewed segment."""
+    return (
+        row["segment_text"] == material["text"]
+        and float(row["segment_start"]) == material["start"]
+        and float(row["segment_end"]) == material["end"]
+    )
 
 
 def register_manual_quality_candidate(
@@ -329,12 +346,98 @@ def register_manual_quality_candidate(
         ).fetchone()
         if existing is not None:
             if existing["candidate_transcript_sha256"] != current_hash:
-                raise ValueError(
-                    "Aktueller QA-Kandidat gehört nicht zur aktuellen "
-                    "Transkriptversion"
+                db.execute(
+                    """UPDATE quality_reviews SET is_current=0
+                       WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                         AND is_current=1""",
+                    (
+                        drive_id,
+                        existing["segment_id"],
+                        existing["candidate_hash"],
+                    ),
+                )
+            else:
+                if not _stored_segment_material_matches(existing, material):
+                    raise ValueError(
+                        "Aktueller QA-Kandidat enthält abweichendes "
+                        "Segmentmaterial"
+                    )
+                changed = existing["candidate_origin"] != "MANUAL"
+                if changed:
+                    db.execute(
+                        """UPDATE quality_reviews
+                           SET candidate_origin='MANUAL', last_detected_at=?
+                           WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                             AND is_current=1""",
+                        (
+                            moment,
+                            drive_id,
+                            existing["segment_id"],
+                            existing["candidate_hash"],
+                        ),
+                    )
+                row = db.execute(
+                    """SELECT * FROM quality_reviews
+                       WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                         AND is_current=1""",
+                    (
+                        drive_id,
+                        existing["segment_id"],
+                        existing["candidate_hash"],
+                    ),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError(
+                        "Manuelle Markierung des QA-Kandidaten fehlgeschlagen"
+                    )
+                db.commit()
+                return row, changed
+
+        historical = list(db.execute(
+            """SELECT * FROM quality_reviews
+               WHERE drive_id=? AND segment_id=?
+                 AND candidate_origin='MANUAL'
+                 AND candidate_transcript_sha256=? AND is_current=0
+               ORDER BY CASE WHEN candidate_hash=? THEN 0 ELSE 1 END,
+                        last_detected_at DESC""",
+            (drive_id, material["id"], current_hash, fingerprint),
+        ))
+        reusable = next(
+            (
+                row for row in historical
+                if _stored_segment_material_matches(row, material)
+            ),
+            None,
+        )
+        if reusable is not None:
+            db.execute(
+                """UPDATE quality_reviews
+                   SET is_current=1, last_detected_at=?
+                   WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                     AND is_current=0""",
+                (
+                    moment,
+                    drive_id,
+                    reusable["segment_id"],
+                    reusable["candidate_hash"],
+                ),
+            )
+            row = db.execute(
+                """SELECT * FROM quality_reviews
+                   WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                     AND is_current=1""",
+                (
+                    drive_id,
+                    reusable["segment_id"],
+                    reusable["candidate_hash"],
+                ),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError(
+                    "Historischer QA-Kandidat wurde nicht reaktiviert"
                 )
             db.commit()
-            return existing, False
+            return row, True
         db.execute(
             """INSERT INTO quality_reviews
                (drive_id, segment_id, candidate_hash, is_current, status,
