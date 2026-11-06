@@ -335,6 +335,20 @@ Aufforderung zum Probehören. `--segment-id` kann mehrfach angegeben werden, um
 gezielt einzelne Stellen auszuwählen. Es erfolgt kein Drive-Upload und keine
 Veränderung des kanonischen Transkripts.
 
+Wird erst beim Hören eine zusätzliche Auslassung sichtbar, lässt sich das
+betroffene Segment unabhängig von den automatischen Schwellen versionsgebunden
+registrieren:
+
+```bash
+.venv/bin/python quality_reviews.py \
+  --register-manual SEGMENTE_JSON \
+  --segment-id segment-000002
+```
+
+Vorhandene automatische oder manuelle Kandidaten werden dabei nicht ersetzt.
+Die Segmentdatei muss zum gegenwärtigen Transkript passen; der ausgegebene
+Kandidatenhash bindet die spätere Entscheidung an genau diese Fassung.
+
 Bestätigte Hörentscheidungen lassen sich anschließend schreibgeschützt zu
 einem Reparaturplan zusammenführen:
 

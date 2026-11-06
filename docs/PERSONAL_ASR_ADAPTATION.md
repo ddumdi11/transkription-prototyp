@@ -122,6 +122,21 @@ unbegrenzte Ausschnitte; sie ist mit `--max-extended-seconds` einstellbar.
 kanonischen Transkript. `plan_transcript_repairs.py` fasst ausschließlich die
 aktuellen bestätigten Entscheidungen aus der vorhandenen Datenbank zusammen:
 
+Ein erst bei der Hörprüfung entdecktes Segment kann vor der Entscheidung
+ausdrücklich registriert werden, auch wenn die automatische Textdichteprüfung
+es nicht markiert hat:
+
+```bash
+.venv/bin/python quality_reviews.py \
+  --register-manual SEGMENTE_JSON \
+  --segment-id segment-000002
+```
+
+Diese Einzelregistrierung ist an den Transkripthash der Segmentdatei gebunden,
+bleibt neben automatischen Kandidaten erhalten und verändert weder Transkript
+noch Audio. Ein bereits aktueller Kandidat für dasselbe Segment wird
+wiederverwendet.
+
 ```bash
 .venv/bin/python plan_transcript_repairs.py
 .venv/bin/python plan_transcript_repairs.py --drive-id DRIVE_ID --json

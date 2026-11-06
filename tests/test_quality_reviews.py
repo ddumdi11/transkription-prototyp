@@ -11,7 +11,9 @@ from quality_reviews import (
     curate_quality_review,
     decide_quality_review,
     ensure_quality_state,
+    manual_candidate_from_payload,
     parse_args,
+    register_manual_quality_candidate,
     sync_quality_candidates,
 )
 
@@ -34,6 +36,15 @@ def candidate(text="Sehr viel Text in einem viel zu kurzen Segment."):
         "explicitly_selected": False,
         "previous_gap": 0.0,
         "next_gap": 30.0,
+    }
+
+
+def segment_payload(*segments, transcript_sha256=TRANSCRIPT_SHA256):
+    return {
+        "schema_version": 1,
+        "source_id": "drive-id",
+        "transcript_sha256": transcript_sha256,
+        "segments": list(segments),
     }
 
 
@@ -111,6 +122,154 @@ class QualityReviewsTest(unittest.TestCase):
             [(row["status"], row["is_current"]) for row in history],
             [("CONFIRMED", 0), ("PENDING", 1)],
         )
+
+    def test_manual_candidate_coexists_with_automatic_rescan(self):
+        automatic = candidate()
+        sync_quality_candidates(
+            self.db, "drive-id", [automatic],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )
+        selected = {
+            "id": "segment-000002",
+            "start": 20.0,
+            "end": 25.0,
+            "raw_text": " Normal gesprochener Text. ",
+            "text": "Normal gesprochener Text.",
+        }
+        manual = manual_candidate_from_payload(
+            segment_payload(selected), "segment-000002"
+        )
+
+        row, changed = register_manual_quality_candidate(
+            self.db,
+            "drive-id",
+            manual,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256,
+            now=1010,
+        )
+        repeated, repeated_changed = register_manual_quality_candidate(
+            self.db,
+            "drive-id",
+            manual,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256,
+            now=1020,
+        )
+        rescanned = sync_quality_candidates(
+            self.db, "drive-id", [automatic],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1100,
+        )
+
+        self.assertTrue(changed)
+        self.assertFalse(repeated_changed)
+        self.assertEqual(row["candidate_origin"], "MANUAL")
+        self.assertEqual(repeated["candidate_hash"], row["candidate_hash"])
+        self.assertEqual(len(rescanned), 1)
+        current = current_quality_reviews(self.db)
+        self.assertEqual(len(current), 2)
+        self.assertEqual(
+            {item["candidate_origin"] for item in current},
+            {"AUTOMATIC", "MANUAL"},
+        )
+        self.assertIn(
+            "manual_selection", json.loads(row["flags_json"])
+        )
+
+    def test_manual_registration_reuses_current_automatic_candidate(self):
+        automatic = candidate()
+        registered = sync_quality_candidates(
+            self.db, "drive-id", [automatic],
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256, now=1000,
+        )[0]
+        manual = dict(automatic)
+        manual["flags"] = sorted(
+            set(manual["flags"]) | {"manual_selection"}
+        )
+
+        row, changed = register_manual_quality_candidate(
+            self.db,
+            "drive-id",
+            manual,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256,
+            now=1100,
+        )
+
+        self.assertFalse(changed)
+        self.assertEqual(row["candidate_hash"], registered["candidate_hash"])
+        self.assertEqual(row["candidate_origin"], "AUTOMATIC")
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM quality_reviews"
+        ).fetchone()[0]
+        self.assertEqual(count, 1)
+
+    def test_automatic_sync_deactivates_manual_candidate_from_old_version(self):
+        selected = {
+            "id": "segment-000002",
+            "start": 20.0,
+            "end": 25.0,
+            "raw_text": " Normal gesprochener Text. ",
+            "text": "Normal gesprochener Text.",
+        }
+        manual = manual_candidate_from_payload(
+            segment_payload(selected), "segment-000002"
+        )
+        row, changed = register_manual_quality_candidate(
+            self.db,
+            "drive-id",
+            manual,
+            transcript_sha256=TRANSCRIPT_SHA256,
+            segment_transcript_sha256=TRANSCRIPT_SHA256,
+            now=1000,
+        )
+
+        automatic = sync_quality_candidates(
+            self.db,
+            "drive-id",
+            [],
+            transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+            segment_transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+            now=1100,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(automatic, [])
+        self.assertEqual(current_quality_reviews(self.db), [])
+        historical = self.db.execute(
+            "SELECT is_current FROM quality_reviews WHERE candidate_hash=?",
+            (row["candidate_hash"],),
+        ).fetchone()
+        self.assertEqual(historical["is_current"], 0)
+
+    def test_manual_registration_rejects_stale_segment_metadata(self):
+        selected = {
+            "id": "segment-000002",
+            "start": 20.0,
+            "end": 25.0,
+            "raw_text": " Normal gesprochener Text. ",
+            "text": "Normal gesprochener Text.",
+        }
+        manual = manual_candidate_from_payload(
+            segment_payload(selected), "segment-000002"
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "nicht zur aktuellen Transkriptversion"
+        ):
+            register_manual_quality_candidate(
+                self.db,
+                "drive-id",
+                manual,
+                transcript_sha256=CHANGED_TRANSCRIPT_SHA256,
+                segment_transcript_sha256=TRANSCRIPT_SHA256,
+                now=1000,
+            )
+
+        self.assertEqual(current_quality_reviews(self.db), [])
 
     def test_confirmation_is_exact_and_idempotent(self):
         item = candidate()
@@ -286,7 +445,7 @@ class QualityReviewsTest(unittest.TestCase):
         columns = [
             str(row[1])
             for row in self.db.execute("PRAGMA table_info(quality_reviews)")
-            if str(row[1]) != "curated_text"
+            if str(row[1]) not in {"candidate_origin", "curated_text"}
         ]
         joined = ", ".join(columns)
         self.db.execute(
@@ -302,6 +461,7 @@ class QualityReviewsTest(unittest.TestCase):
         ensure_quality_state(self.db)
 
         row = current_quality_reviews(self.db)[0]
+        self.assertEqual(row["candidate_origin"], "AUTOMATIC")
         self.assertEqual(row["confirmed_text"], "Alter gemeinsam gespeicherter Ersatz.")
         self.assertEqual(row["curated_text"], "Alter gemeinsam gespeicherter Ersatz.")
 
@@ -594,6 +754,20 @@ class QualityReviewsTest(unittest.TestCase):
                 args = parse_args([option, ""])
                 with self.assertRaisesRegex(ValueError, "Entscheidungsdetails"):
                     _validate_operation(args)
+
+    def test_manual_registration_requires_segment_id(self):
+        args = parse_args(["--register-manual", "segments.json"])
+        with self.assertRaisesRegex(ValueError, "erfordert --segment-id"):
+            _validate_operation(args)
+
+    def test_manual_registration_rejects_display_filters(self):
+        args = parse_args([
+            "--register-manual", "segments.json",
+            "--segment-id", "segment-000001",
+            "--status", "PENDING",
+        ])
+        with self.assertRaisesRegex(ValueError, "Anzeigefiltern"):
+            _validate_operation(args)
 
 
 if __name__ == "__main__":

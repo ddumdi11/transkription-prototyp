@@ -29,6 +29,7 @@ ISSUE_TYPES = {
 }
 CURATION_ACTIONS = {"REPLACE", "DELETE"}
 TEXT_ISSUES = {"WORD_ERROR", "OMISSION", "HALLUCINATION", "OTHER"}
+MANUAL_REVIEW_FLAG = "manual_selection"
 
 
 def ensure_quality_state(db: sqlite3.Connection) -> None:
@@ -47,6 +48,8 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
             is_current INTEGER NOT NULL CHECK (is_current IN (0, 1)),
             status TEXT NOT NULL
                 CHECK (status IN ('PENDING', 'CONFIRMED', 'DISMISSED')),
+            candidate_origin TEXT NOT NULL DEFAULT 'AUTOMATIC'
+                CHECK (candidate_origin IN ('AUTOMATIC', 'MANUAL')),
             flags_json TEXT NOT NULL,
             issue_types_json TEXT NOT NULL DEFAULT '[]',
             segment_start REAL NOT NULL,
@@ -73,6 +76,12 @@ def ensure_quality_state(db: sqlite3.Connection) -> None:
         if "transcript_sha256" not in columns:
             db.execute(
                 "ALTER TABLE quality_reviews ADD COLUMN transcript_sha256 TEXT"
+            )
+        if "candidate_origin" not in columns:
+            db.execute(
+                "ALTER TABLE quality_reviews ADD COLUMN candidate_origin TEXT "
+                "NOT NULL DEFAULT 'AUTOMATIC' "
+                "CHECK (candidate_origin IN ('AUTOMATIC', 'MANUAL'))"
             )
         if "candidate_transcript_sha256" not in columns:
             db.execute(
@@ -208,10 +217,22 @@ def sync_quality_candidates(
 
     with db:
         db.execute(
-            "UPDATE quality_reviews SET is_current=0 WHERE drive_id=? AND is_current=1",
-            (drive_id,),
+            """UPDATE quality_reviews SET is_current=0
+               WHERE drive_id=? AND is_current=1
+                 AND (candidate_origin='AUTOMATIC'
+                      OR candidate_transcript_sha256 IS NULL
+                      OR candidate_transcript_sha256<>?)""",
+            (drive_id, current_hash),
         )
         for material, fingerprint in prepared:
+            manual = db.execute(
+                """SELECT 1 FROM quality_reviews
+                   WHERE drive_id=? AND segment_id=? AND is_current=1
+                     AND candidate_origin='MANUAL'""",
+                (drive_id, material["id"]),
+            ).fetchone()
+            if manual is not None:
+                continue
             existing = db.execute(
                 """SELECT 1 FROM quality_reviews
                    WHERE drive_id=? AND segment_id=? AND candidate_hash=?""",
@@ -228,10 +249,12 @@ def sync_quality_candidates(
             db.execute(
                 """INSERT INTO quality_reviews
                    (drive_id, segment_id, candidate_hash, is_current, status,
-                    flags_json, issue_types_json, segment_start, segment_end,
+                    candidate_origin, flags_json, issue_types_json,
+                    segment_start, segment_end,
                     segment_text, chars_per_second, candidate_transcript_sha256,
                     first_detected_at, last_detected_at)
-                   VALUES (?, ?, ?, 1, 'PENDING', ?, '[]', ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, 1, 'PENDING', 'AUTOMATIC', ?, '[]',
+                           ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     drive_id,
                     material["id"],
@@ -248,9 +271,106 @@ def sync_quality_candidates(
             )
     return list(db.execute(
         """SELECT * FROM quality_reviews
-           WHERE drive_id=? AND is_current=1 ORDER BY segment_start, segment_id""",
+           WHERE drive_id=? AND is_current=1
+             AND candidate_origin='AUTOMATIC'
+           ORDER BY segment_start, segment_id""",
         (drive_id,),
     ))
+
+
+def manual_candidate_from_payload(
+    payload: dict[str, Any], segment_id: str
+) -> dict[str, Any]:
+    """Build one explicit review candidate from validated segment metadata."""
+    if not isinstance(segment_id, str) or not segment_id.strip():
+        raise ValueError("Manuelle Segment-ID darf nicht leer sein")
+    candidates = find_suspicious_segments(payload, selected_ids={segment_id})
+    if len(candidates) != 1:
+        raise ValueError(f"Segment-ID nicht eindeutig gefunden: {segment_id}")
+    candidate = dict(candidates[0])
+    candidate["flags"] = sorted(
+        set(candidate["flags"]) | {MANUAL_REVIEW_FLAG}
+    )
+    return candidate
+
+
+def register_manual_quality_candidate(
+    db: sqlite3.Connection,
+    drive_id: str,
+    candidate: dict[str, Any],
+    *,
+    transcript_sha256: str,
+    segment_transcript_sha256: str,
+    now: float | None = None,
+) -> tuple[sqlite3.Row, bool]:
+    """Register one selected segment without replacing detector results."""
+    if not isinstance(drive_id, str) or not drive_id.strip():
+        raise ValueError("Drive-ID darf nicht leer sein")
+    current_hash = _validate_transcript_sha256(transcript_sha256)
+    source_hash = _validate_transcript_sha256(segment_transcript_sha256)
+    if source_hash != current_hash:
+        raise ValueError(
+            "Segmentdatei gehört nicht zur aktuellen Transkriptversion; "
+            "Segmentdatei neu erzeugen"
+        )
+    material = _candidate_material(candidate)
+    if MANUAL_REVIEW_FLAG not in material["flags"]:
+        raise ValueError("Manueller QA-Kandidat trägt kein Auswahlsignal")
+    fingerprint = candidate_hash(candidate, source_hash)
+    moment = time.time() if now is None else now
+    ensure_quality_state(db)
+
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        existing = db.execute(
+            """SELECT * FROM quality_reviews
+               WHERE drive_id=? AND segment_id=? AND is_current=1""",
+            (drive_id, material["id"]),
+        ).fetchone()
+        if existing is not None:
+            if existing["candidate_transcript_sha256"] != current_hash:
+                raise ValueError(
+                    "Aktueller QA-Kandidat gehört nicht zur aktuellen "
+                    "Transkriptversion"
+                )
+            db.commit()
+            return existing, False
+        db.execute(
+            """INSERT INTO quality_reviews
+               (drive_id, segment_id, candidate_hash, is_current, status,
+                candidate_origin, flags_json, issue_types_json,
+                segment_start, segment_end, segment_text, chars_per_second,
+                candidate_transcript_sha256, first_detected_at, last_detected_at)
+               VALUES (?, ?, ?, 1, 'PENDING', 'MANUAL', ?, '[]',
+                       ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                drive_id,
+                material["id"],
+                fingerprint,
+                json.dumps(material["flags"], ensure_ascii=False),
+                material["start"],
+                material["end"],
+                material["text"],
+                material["chars_per_second"],
+                source_hash,
+                moment,
+                moment,
+            ),
+        )
+        row = db.execute(
+            """SELECT * FROM quality_reviews
+               WHERE drive_id=? AND segment_id=? AND candidate_hash=?
+                 AND is_current=1""",
+            (drive_id, material["id"], fingerprint),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Manueller QA-Kandidat wurde nicht gespeichert")
+    except Exception:
+        db.rollback()
+        raise
+    else:
+        db.commit()
+        return row, True
 
 
 def current_quality_reviews(
@@ -521,10 +641,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Persistente Qualitätsprüfungen anzeigen oder ausdrücklich entscheiden."
     )
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
-    parser.add_argument(
+    registration = parser.add_mutually_exclusive_group()
+    registration.add_argument(
         "--register-segments", type=Path, action="append", default=[],
         metavar="SEGMENTE_JSON",
         help="Auffälligkeiten aus einer validierten Segmentdatei registrieren",
+    )
+    registration.add_argument(
+        "--register-manual", type=Path, metavar="SEGMENTE_JSON",
+        help="Ein mit --segment-id gewähltes Segment manuell registrieren",
     )
     parser.add_argument("--drive-id")
     parser.add_argument("--segment-id")
@@ -546,6 +671,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _validate_operation(args: argparse.Namespace) -> None:
     deciding = args.confirm or args.dismiss
     curating = args.curate_replacement is not None or args.curate_delete
+    registering_manual = args.register_manual is not None
     if (deciding or curating) and not all(
         (args.drive_id, args.segment_id, args.candidate_hash)
     ):
@@ -559,7 +685,7 @@ def _validate_operation(args: argparse.Namespace) -> None:
     )
     if not deciding and decision_details_supplied:
         raise ValueError("Entscheidungsdetails erfordern --confirm oder --dismiss")
-    if args.register_segments and (deciding or curating):
+    if (args.register_segments or registering_manual) and (deciding or curating):
         raise ValueError(
             "Registrieren, Entscheiden und Kuratieren sind getrennte Schritte"
         )
@@ -567,6 +693,14 @@ def _validate_operation(args: argparse.Namespace) -> None:
         (args.drive_id, args.segment_id, args.candidate_hash, args.status)
     ):
         raise ValueError("Registrieren darf nicht mit Anzeigefiltern kombiniert werden")
+    if registering_manual:
+        if args.segment_id is None:
+            raise ValueError("--register-manual erfordert --segment-id")
+        if any((args.drive_id, args.candidate_hash, args.status)):
+            raise ValueError(
+                "Manuelles Registrieren darf nicht mit Anzeigefiltern "
+                "kombiniert werden"
+            )
     if not (deciding or curating) and args.candidate_hash is not None:
         raise ValueError(
             "--candidate-hash wird nur für eine Entscheidung oder Kuratierung verwendet"
@@ -598,7 +732,7 @@ def main(argv: list[str] | None = None) -> int:
         _validate_operation(args)
         deciding = args.confirm or args.dismiss
         curating = args.curate_replacement is not None or args.curate_delete
-        if args.register_segments or deciding or curating:
+        if args.register_segments or args.register_manual or deciding or curating:
             with open_state(args.state) as db:
                 ensure_quality_state(db)
                 if args.register_segments:
@@ -618,6 +752,33 @@ def main(argv: list[str] | None = None) -> int:
                             ),
                         )
                         print(f"Registriert id={source_id}: {len(rows)} aktuelle Kandidaten")
+                elif args.register_manual:
+                    payload = load_segment_metadata(args.register_manual)
+                    source_id = payload.get("source_id")
+                    if not isinstance(source_id, str) or not source_id.strip():
+                        raise ValueError(
+                            "Segmentdatei enthält keine Drive-ID: "
+                            f"{args.register_manual}"
+                        )
+                    transcript_sha256 = transcript_sha256_for_drive(db, source_id)
+                    candidate = manual_candidate_from_payload(
+                        payload, args.segment_id
+                    )
+                    row, changed = register_manual_quality_candidate(
+                        db,
+                        source_id,
+                        candidate,
+                        transcript_sha256=transcript_sha256,
+                        segment_transcript_sha256=payload.get(
+                            "transcript_sha256"
+                        ),
+                    )
+                    state = "registriert" if changed else "bereits aktuell"
+                    print(
+                        f"Manueller QA-Kandidat {state}: id={source_id} "
+                        f"segment={row['segment_id']} "
+                        f"hash={row['candidate_hash']}"
+                    )
                 elif deciding:
                     transcript_sha256 = transcript_sha256_for_drive(
                         db, args.drive_id

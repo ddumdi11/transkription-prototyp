@@ -104,6 +104,20 @@ zuvor gemeinsam mit dem Transkript neu erzeugt werden:
   --register-segments "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json"
 ```
 
+Ein bei der Hörprüfung zusätzlich entdecktes, vom automatischen Schwellenwert
+nicht erfasstes Segment wird einzeln und versionsgebunden registriert:
+
+```bash
+.venv/bin/python quality_reviews.py \
+  --register-manual "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json" \
+  --segment-id segment-000002
+```
+
+Die manuelle Registrierung ersetzt weder automatische Kandidaten noch andere
+manuell ausgewählte Segmente. Sie bricht bei einer veralteten Segmentdatei ab
+und gibt den Kandidatenhash für die anschließende Entscheidung aus. Ist dasselbe
+Segment bereits aktuell registriert, wird der vorhandene Kandidat verwendet.
+
 Eine menschliche Entscheidung ist immer an Drive-ID, Segment-ID und den
 angezeigten SHA256-Fingerabdruck des konkreten Kandidaten gebunden. Bestätigte
 Fälle erhalten mindestens eine Fehlerart:
