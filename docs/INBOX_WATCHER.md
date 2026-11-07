@@ -207,6 +207,56 @@ AUDIOREC_PROMPT=Fachbegriffe: Diktiergerät, Claude, Claude Code, KI
 AUDIOREC_HOTWORDS=Traktat
 ```
 
+## AudioRec-Smartphone-Inventur (v0.1)
+
+Der lokale Helfer `inventory_audiorec_phone.py` inventarisiert einen bereits
+über USB/MTP eingebundenen Aufnahmeordner. Die Quelle wird ausschließlich
+gelesen. Datenbank und Bericht müssen außerhalb des Smartphone-Ordners liegen;
+Pfade innerhalb der Quelle werden abgelehnt.
+
+Ein vollständig schreibfreier Prüfscan gibt JSON auf stdout aus und erzeugt
+weder eine SQLite-Datei noch einen Bericht:
+
+```bash
+.venv/bin/python inventory_audiorec_phone.py \
+  --source "/run/user/1000/gvfs/mtp:host=GERAETE_ID/Interner Speicher/Android/data/com.audioRec/files/recordings" \
+  --device-id audiorec-a53 \
+  --check
+```
+
+Der normale Lauf schreibt ausschließlich lokalen Laufzeitzustand:
+
+```bash
+.venv/bin/python inventory_audiorec_phone.py \
+  --source "/run/user/1000/gvfs/mtp:host=GERAETE_ID/Interner Speicher/Android/data/com.audioRec/files/recordings" \
+  --device-id audiorec-a53
+```
+
+- maßgebliche lokale Inventardatenbank:
+  `.inbox-watcher/audiorec-inventory.sqlite3`
+- atomar installierter Bericht:
+  `staging/audiorec-inventory/latest-report.json`
+- erste Epoche: `epoch-1`
+- bestätigte Abdeckung: `2025-12-01T00:00:00+01:00`
+
+Der Schnellscan liest Namen, Größe und MTP-Änderungszeit. Mit
+`--inspect-audio` werden zusätzlich die WAV-Köpfe auf Dauer, Abtastrate,
+Kanalzahl und Samplebreite geprüft. Diese Option kann bei vielen Dateien über
+MTP erheblich länger dauern.
+
+Die laufende AudioRec-Nummer ist ausdrücklich kein Primärschlüssel. Standardnamen
+wie `Aufnahme #1000.wav` und optionale Endziffern ungewöhnlicher Namen werden
+nur als Hinweise gespeichert. Pfadwiederverwendung mit geänderter Größe oder
+Änderungszeit erzeugt eine neue Version; die frühere Zeile bleibt historisch
+erhalten. Verschwundene Dateien werden als `MISSING` markiert und niemals als
+erfolgreich gesichert oder absichtlich gelöscht interpretiert.
+
+Ein Wechsel von Epoche oder `coverage_from` wird in v0.1 abgelehnt. Ein späterer
+Reset muss ausdrücklich geplant werden und darf ältere Dateien nicht automatisch
+als löschbar einstufen. v0.1 berechnet keine vollständigen Datei-Hashes, führt
+keinen Drive-/Pipeline-Abgleich durch, verändert AudioRec nicht und kennt keine
+Löschaktion oder Löschfreigabe.
+
 ## Transkripte veröffentlichen (v0.2)
 
 `publish_transcripts.py` zeigt standardmäßig nur den Plan aller erfolgreichen,
