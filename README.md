@@ -741,6 +741,37 @@ Viel Spaß beim Diktieren und Transkribieren!
 
 ---
 
+## AudioRec-Smartphone rein lesend inventarisieren
+
+`inventory_audiorec_phone.py` erfasst einen über USB/MTP eingebundenen
+AudioRec-Aufnahmeordner, ohne dort Dateien anzulegen, zu verändern oder zu
+entfernen. Ein erster Prüfscan schreibt mit `--check` auch lokal weder SQLite
+noch Bericht:
+
+```bash
+.venv/bin/python inventory_audiorec_phone.py \
+  --source "/run/user/1000/gvfs/mtp:host=GERAETE_ID/Interner Speicher/Android/data/com.audioRec/files/recordings" \
+  --check
+```
+
+Der normale Lauf führt den getrennten lokalen Zustand unter
+`.inbox-watcher/audiorec-inventory.sqlite3` und installiert den letzten
+JSON-Bericht atomar unter
+`staging/audiorec-inventory/latest-report.json`. Die voreingestellte
+Inventarepochen-Abdeckung beginnt am `2025-12-01T00:00:00+01:00`.
+AudioRec-Nummern und optionale Endziffern werden nur als nicht eindeutige
+Hinweise erfasst; die vorläufige Identität bindet zusätzlich Gerät, Epoche,
+Pfad, Größe und Änderungszeit. Beliebige Unicode-Namen bleiben inventarisierbar
+und werden bei abweichendem Schema als Anomalie gemeldet.
+
+v0.1 berechnet noch keine vollständigen Audio-Hashes, gleicht nicht mit Drive
+oder Pipeline ab und erteilt keine Löschfreigaben. `--inspect-audio` öffnet
+optional die WAV-Köpfe; der schnelle Standardscan vermeidet diese vielen
+MTP-Zugriffe. Details stehen in
+[`docs/INBOX_WATCHER.md`](docs/INBOX_WATCHER.md#audiorec-smartphone-inventur-v01).
+
+---
+
 ## Projektübergreifender Entwurf
 
 Das zunächst manuelle, datensparsame Messschema zur vergleichbaren Auswahl von
