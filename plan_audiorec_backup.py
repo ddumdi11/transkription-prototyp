@@ -213,11 +213,20 @@ def pipeline_candidates(db: sqlite3.Connection) -> dict[tuple[str, int], list[di
     indexed: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         path = unicodedata.normalize("NFC", str(row["path"]))
-        hash_type = str(row["hash_type"]).lower()
+        raw_hash_type = row["hash_type"]
         content_hash = row["content_hash"]
+        if (
+            not isinstance(raw_hash_type, str)
+            or not raw_hash_type.strip()
+            or not isinstance(content_hash, str)
+            or not content_hash.strip()
+        ):
+            raise ValueError(
+                f"Fehlende Pipeline-Hashangabe für Drive-ID {row['drive_id']}"
+            )
+        hash_type = raw_hash_type.lower()
         if hash_type == "sha256" and (
-            not isinstance(content_hash, str)
-            or not SHA256_PATTERN.fullmatch(content_hash.lower())
+            not SHA256_PATTERN.fullmatch(content_hash.lower())
         ):
             raise ValueError(
                 f"Ungültiger Pipeline-SHA-256 für Drive-ID {row['drive_id']}"
@@ -312,7 +321,9 @@ def build_backup_plan(
 ) -> dict[str, Any]:
     """Build one deterministic, fully read-only backup evidence plan."""
     validate_states(inventory_db, pipeline_db)
-    inventory_db.execute("BEGIN")
+    owns_inventory_transaction = not inventory_db.in_transaction
+    if owns_inventory_transaction:
+        inventory_db.execute("BEGIN")
     try:
         epoch = current_epoch(inventory_db, device_id, epoch_id)
         phones = phone_recordings(
@@ -322,7 +333,8 @@ def build_backup_plan(
             inventory_db, device_id, str(epoch["epoch_id"])
         )
     finally:
-        inventory_db.rollback()
+        if owns_inventory_transaction and inventory_db.in_transaction:
+            inventory_db.rollback()
     indexed = pipeline_candidates(pipeline_db)
     items = [
         plan_item(

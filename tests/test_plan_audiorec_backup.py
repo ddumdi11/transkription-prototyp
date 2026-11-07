@@ -109,10 +109,10 @@ class AudioRecBackupPlanTest(unittest.TestCase):
         self,
         number: int,
         drive_id: str,
-        digest: str,
+        digest: str | None,
         *,
         size: int = 100,
-        hash_type: str = "sha256",
+        hash_type: str | None = "sha256",
         published: bool = True,
         path: str | None = None,
     ) -> None:
@@ -259,6 +259,34 @@ class AudioRecBackupPlanTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Pipeline-SHA-256"):
             self.plan()
 
+    def test_pipeline_sha256_normalizes_case_and_rejects_missing_values(self):
+        """Pipeline hash material must be present before normalization."""
+        self.add_phone(1, sha256="a" * 64, hash_status="VERIFIED")
+        self.add_pipeline(1, "id-1", "A" * 64)
+
+        plan = self.plan()
+
+        self.assertEqual(plan["items"][0]["match_status"], "CONTENT_HASH_MATCH")
+        self.assertEqual(
+            plan["items"][0]["pipeline_content_hashes"],
+            [{"hash_type": "sha256", "content_hash": "a" * 64}],
+        )
+
+        with closing(sqlite3.connect(self.pipeline)) as db:
+            db.execute("UPDATE files SET content_hash=NULL WHERE drive_id='id-1'")
+            db.commit()
+        with self.assertRaisesRegex(ValueError, "Fehlende Pipeline-Hashangabe"):
+            self.plan()
+
+        with closing(sqlite3.connect(self.pipeline)) as db:
+            db.execute(
+                "UPDATE files SET content_hash=?,hash_type=NULL WHERE drive_id='id-1'",
+                ("a" * 64,),
+            )
+            db.commit()
+        with self.assertRaisesRegex(ValueError, "Fehlende Pipeline-Hashangabe"):
+            self.plan()
+
     def test_plan_is_deterministic_and_reports_latest_snapshot(self):
         """Identical database snapshots produce byte-equivalent plan data."""
         self.add_phone(1)
@@ -277,6 +305,68 @@ class AudioRecBackupPlanTest(unittest.TestCase):
             first["sources"]["latest_inventory_scan"],
             {"scan_id": "scan-2", "scanned_at": "2026-11-07T11:00:00Z"},
         )
+
+    def test_build_plan_preserves_caller_owned_inventory_transaction(self):
+        """The planner neither starts nor ends a caller-owned transaction."""
+        self.add_phone(1)
+        inventory_db = sqlite3.connect(self.inventory)
+        inventory_db.row_factory = sqlite3.Row
+        try:
+            inventory_db.execute("BEGIN")
+            inventory_db.execute(
+                "INSERT INTO inventory_scans VALUES (?,?,?,?)",
+                ("scan-private", "phone", "epoch-1", "2026-11-07T12:00:00Z"),
+            )
+            with open_readonly_state(self.pipeline, "pipeline") as pipeline_db:
+                plan = build_backup_plan(
+                    inventory_db,
+                    pipeline_db,
+                    inventory_state=self.inventory,
+                    pipeline_state=self.pipeline,
+                    device_id="phone",
+                )
+
+            self.assertTrue(inventory_db.in_transaction)
+            self.assertEqual(
+                plan["sources"]["latest_inventory_scan"]["scan_id"],
+                "scan-private",
+            )
+            inventory_db.rollback()
+        finally:
+            inventory_db.close()
+
+        with closing(sqlite3.connect(self.inventory)) as db:
+            self.assertIsNone(
+                db.execute(
+                    "SELECT 1 FROM inventory_scans WHERE scan_id='scan-private'"
+                ).fetchone()
+            )
+
+    def test_build_plan_repeats_with_autocommit_connection(self):
+        """Planner-owned snapshots end cleanly on an autocommit connection."""
+        self.add_phone(1)
+        with (
+            open_readonly_state(self.inventory, "inventory") as inventory_db,
+            open_readonly_state(self.pipeline, "pipeline") as pipeline_db,
+        ):
+            inventory_db.isolation_level = None
+            first = build_backup_plan(
+                inventory_db,
+                pipeline_db,
+                inventory_state=self.inventory,
+                pipeline_state=self.pipeline,
+                device_id="phone",
+            )
+            second = build_backup_plan(
+                inventory_db,
+                pipeline_db,
+                inventory_state=self.inventory,
+                pipeline_state=self.pipeline,
+                device_id="phone",
+            )
+
+            self.assertEqual(first, second)
+            self.assertFalse(inventory_db.in_transaction)
 
     def test_readonly_context_closes_connection(self):
         """Leaving the read-only context closes its SQLite handle."""
