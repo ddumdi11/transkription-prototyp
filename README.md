@@ -751,14 +751,24 @@ noch Bericht:
 ```bash
 .venv/bin/python inventory_audiorec_phone.py \
   --source "/run/user/1000/gvfs/mtp:host=GERAETE_ID/Interner Speicher/Android/data/com.audioRec/files/recordings" \
+  --device-id audiorec-a53 \
   --check
 ```
+
+Jedes Smartphone benötigt eine eigene, dauerhaft stabile `--device-id`. Ohne
+diese Option verwendet der Helfer `audiorec-android-primary`.
+
+Erfasst werden ausschließlich WAV-Dateien direkt im angegebenen Quellordner.
+Unterordner und andere Dateiformate werden übersprungen; der Bericht ist daher
+kein vollständiges Verzeichnisinventar des Ordners.
 
 Der normale Lauf führt den getrennten lokalen Zustand unter
 `.inbox-watcher/audiorec-inventory.sqlite3` und installiert den letzten
 JSON-Bericht atomar unter
 `staging/audiorec-inventory/latest-report.json`. Die voreingestellte
-Inventarepochen-Abdeckung beginnt am `2025-12-01T00:00:00+01:00`.
+Grenze `coverage_from` ist `2025-12-01T00:00:00+01:00`. Sie bestätigt nicht,
+dass seit diesem Zeitpunkt jede jemals vorhandene Aufnahme vollständig erfasst
+ist.
 AudioRec-Nummern und optionale Endziffern werden nur als nicht eindeutige
 Hinweise erfasst; die vorläufige Identität bindet zusätzlich Gerät, Epoche,
 Pfad, Größe und Änderungszeit. Beliebige Unicode-Namen bleiben inventarisierbar

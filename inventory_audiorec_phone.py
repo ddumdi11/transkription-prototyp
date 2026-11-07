@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,7 +19,7 @@ import tempfile
 import unicodedata
 import uuid
 import wave
-from typing import Any, Iterable
+from typing import Any, BinaryIO, Iterable, Iterator
 
 
 SCHEMA_VERSION = 1
@@ -30,6 +31,8 @@ DEFAULT_EPOCH_ID = "epoch-1"
 DEFAULT_COVERAGE_FROM = "2025-12-01T00:00:00+01:00"
 STANDARD_NAME = re.compile(r"^Aufnahme #(\d+)\.wav$")
 TRAILING_NUMBER = re.compile(r"(\d+)(?=\.wav$)", re.IGNORECASE)
+SQLITE_INTEGER_MIN = -(2**63)
+SQLITE_INTEGER_MAX = 2**63 - 1
 
 
 def setup_cli_logging() -> logging.Logger:
@@ -86,6 +89,12 @@ def validate_paths(source: Path, state: Path, report: Path | None) -> None:
         raise ValueError("Inventardatenbank darf nicht im Smartphone-Quellordner liegen")
     if report is not None and _is_below(report, source):
         raise ValueError("Inventarbericht darf nicht im Smartphone-Quellordner liegen")
+    if (
+        report is not None
+        and state.expanduser().resolve(strict=False)
+        == report.expanduser().resolve(strict=False)
+    ):
+        raise ValueError("Inventardatenbank und Inventarbericht benötigen getrennte Pfade")
 
 
 def inspect_wave_header(path: Path) -> dict[str, Any]:
@@ -120,6 +129,16 @@ def inspect_wave_header(path: Path) -> dict[str, Any]:
         }
 
 
+def _sqlite_integer_label(value: str | None) -> int | None:
+    """Return one decimal label only when SQLite can store it as INTEGER."""
+    if value is None:
+        return None
+    number = int(value)
+    if SQLITE_INTEGER_MIN <= number <= SQLITE_INTEGER_MAX:
+        return number
+    return None
+
+
 def classify_name(name: str) -> dict[str, Any]:
     """Classify a WAV name while treating parsed numbers as non-unique labels."""
     standard = STANDARD_NAME.fullmatch(name)
@@ -127,8 +146,12 @@ def classify_name(name: str) -> dict[str, Any]:
     return {
         "normalized_name": unicodedata.normalize("NFC", name),
         "name_status": "STANDARD" if standard else "ANOMALOUS_PATTERN",
-        "recording_number": int(standard.group(1)) if standard else None,
-        "trailing_number": int(trailing.group(1)) if trailing else None,
+        "recording_number": _sqlite_integer_label(
+            standard.group(1) if standard else None
+        ),
+        "trailing_number": _sqlite_integer_label(
+            trailing.group(1) if trailing else None
+        ),
     }
 
 
@@ -196,6 +219,49 @@ def open_inventory_state(path: Path) -> sqlite3.Connection:
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA synchronous=FULL")
     return db
+
+
+def _lock_file(handle: BinaryIO) -> None:
+    """Acquire one cross-process exclusive lock."""
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+
+def _unlock_file(handle: BinaryIO) -> None:
+    """Release one cross-process exclusive lock."""
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def inventory_state_lock(state: Path) -> Iterator[None]:
+    """Serialize source snapshots and commits sharing one inventory database."""
+    state.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = state.parent / f".{state.name}.lock"
+    with lock_path.open("a+b") as handle:
+        _lock_file(handle)
+        try:
+            yield
+        finally:
+            _unlock_file(handle)
 
 
 def ensure_schema(db: sqlite3.Connection) -> None:
@@ -385,7 +451,7 @@ def synchronize_inventory(
                 scan_id, device_id, epoch_id, str(source), scanned_at, len(items),
                 sum(int(item["size_bytes"]) for item in items), ignored_entries,
                 sum(item["name_status"] != "STANDARD" for item in items),
-                sum(item["audio_status"] == "INVALID" for item in items),
+                0,
             ),
         )
         seen_paths: set[str] = set()
@@ -487,6 +553,10 @@ def synchronize_inventory(
                        WHERE inventory_id=?""",
                     (scan_id, row["inventory_id"]),
                 )
+        db.execute(
+            "UPDATE inventory_scans SET audio_invalid_count=? WHERE scan_id=?",
+            (sum(item["audio_status"] == "INVALID" for item in result), scan_id),
+        )
         db.commit()
         return result
     except Exception:
@@ -638,10 +708,10 @@ def main(argv: list[str] | None = None) -> int:
             args.state,
             None if args.check else args.report,
         )
-        scanned_at = iso_utc(utc_now())
-        scan_id = "scan-" + uuid.uuid4().hex
-        items, ignored = scan_source(args.source, args.inspect_audio)
         if args.check:
+            scanned_at = iso_utc(utc_now())
+            scan_id = "scan-" + uuid.uuid4().hex
+            items, ignored = scan_source(args.source, args.inspect_audio)
             for item in items:
                 item["inventory_id"] = provisional_inventory_id(
                     args.device_id, args.epoch_id, item
@@ -651,36 +721,49 @@ def main(argv: list[str] | None = None) -> int:
                 item["sha256"] = None
                 item["identity_status"] = "PROVISIONAL"
                 item["presence_status"] = "PRESENT"
-            committed = False
+            report = build_report(
+                source=args.source,
+                state=args.state,
+                device_id=args.device_id,
+                epoch_id=args.epoch_id,
+                coverage_from=coverage_from,
+                scanned_at=scanned_at,
+                scan_id=scan_id,
+                items=items,
+                ignored_entries=ignored,
+                committed=False,
+            )
         else:
-            with open_inventory_state(args.state) as db:
-                items = synchronize_inventory(
-                    db,
+            with inventory_state_lock(args.state):
+                scanned_at = iso_utc(utc_now())
+                scan_id = "scan-" + uuid.uuid4().hex
+                items, ignored = scan_source(args.source, args.inspect_audio)
+                with open_inventory_state(args.state) as db:
+                    items = synchronize_inventory(
+                        db,
+                        source=args.source,
+                        device_id=args.device_id,
+                        epoch_id=args.epoch_id,
+                        coverage_from=coverage_from,
+                        reason=args.reason,
+                        items=items,
+                        ignored_entries=ignored,
+                        scanned_at=scanned_at,
+                        scan_id=scan_id,
+                    )
+                report = build_report(
                     source=args.source,
+                    state=args.state,
                     device_id=args.device_id,
                     epoch_id=args.epoch_id,
                     coverage_from=coverage_from,
-                    reason=args.reason,
-                    items=items,
-                    ignored_entries=ignored,
                     scanned_at=scanned_at,
                     scan_id=scan_id,
+                    items=items,
+                    ignored_entries=ignored,
+                    committed=True,
                 )
-            committed = True
-        report = build_report(
-            source=args.source,
-            state=args.state,
-            device_id=args.device_id,
-            epoch_id=args.epoch_id,
-            coverage_from=coverage_from,
-            scanned_at=scanned_at,
-            scan_id=scan_id,
-            items=items,
-            ignored_entries=ignored,
-            committed=committed,
-        )
-        if not args.check:
-            write_json_atomic(args.report, report)
+                write_json_atomic(args.report, report)
         if args.json or args.check:
             print(json.dumps(report, ensure_ascii=False, indent=2))
         logger.info(
@@ -690,7 +773,7 @@ def main(argv: list[str] | None = None) -> int:
             report["summary"]["total_bytes"],
             report["summary"]["anomalous_names"],
             report["summary"]["audio_invalid"],
-            committed,
+            report["committed"],
         )
         logger.info(
             "Smartphone-Quelle blieb schreibgeschützt; Hashes und Löschfreigaben "

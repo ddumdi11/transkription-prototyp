@@ -212,7 +212,10 @@ AUDIOREC_HOTWORDS=Traktat
 Der lokale Helfer `inventory_audiorec_phone.py` inventarisiert einen bereits
 über USB/MTP eingebundenen Aufnahmeordner. Die Quelle wird ausschließlich
 gelesen. Datenbank und Bericht müssen außerhalb des Smartphone-Ordners liegen;
-Pfade innerhalb der Quelle werden abgelehnt.
+Pfade innerhalb der Quelle sowie ein gemeinsamer Pfad für Datenbank und Bericht
+werden abgelehnt. Erfasst werden nur WAV-Dateien direkt im Quellordner;
+Unterordner und andere Dateiformate werden übersprungen. Der Bericht ist daher
+kein vollständiges Inventar aller Ordnereinträge.
 
 Ein vollständig schreibfreier Prüfscan gibt JSON auf stdout aus und erzeugt
 weder eine SQLite-Datei noch einen Bericht:
@@ -237,7 +240,10 @@ Der normale Lauf schreibt ausschließlich lokalen Laufzeitzustand:
 - atomar installierter Bericht:
   `staging/audiorec-inventory/latest-report.json`
 - erste Epoche: `epoch-1`
-- bestätigte Abdeckung: `2025-12-01T00:00:00+01:00`
+- voreingestelltes `coverage_from`: `2025-12-01T00:00:00+01:00`
+
+`coverage_from` ist eine Inventargrenze, aber kein Beleg dafür, dass seit diesem
+Zeitpunkt jede jemals vorhandene Aufnahme vollständig erfasst wurde.
 
 Der Schnellscan liest Namen, Größe und MTP-Änderungszeit. Mit
 `--inspect-audio` werden zusätzlich die WAV-Köpfe auf Dauer, Abtastrate,
