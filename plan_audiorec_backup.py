@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 import json
 import logging
 from pathlib import Path
@@ -12,7 +13,7 @@ import re
 import sqlite3
 import sys
 import unicodedata
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 
 SCHEMA_VERSION = 1
@@ -35,15 +36,23 @@ def setup_cli_logging() -> logging.Logger:
     return logger
 
 
-def open_readonly_state(path: Path, label: str) -> sqlite3.Connection:
-    """Open an existing SQLite state in query-only mode."""
+@contextmanager
+def open_readonly_state(
+    path: Path, label: str
+) -> Iterator[sqlite3.Connection]:
+    """Yield an existing SQLite state in query-only mode and always close it."""
     resolved = path.expanduser().resolve()
     if not resolved.is_file():
         raise ValueError(f"{label} fehlt: {path}")
-    db = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA query_only=ON")
-    return db
+    db: sqlite3.Connection | None = None
+    try:
+        db = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        yield db
+    finally:
+        if db is not None:
+            db.close()
 
 
 def table_columns(db: sqlite3.Connection, table: str) -> set[str]:
@@ -204,12 +213,21 @@ def pipeline_candidates(db: sqlite3.Connection) -> dict[tuple[str, int], list[di
     indexed: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         path = unicodedata.normalize("NFC", str(row["path"]))
+        hash_type = str(row["hash_type"]).lower()
+        content_hash = row["content_hash"]
+        if hash_type == "sha256" and (
+            not isinstance(content_hash, str)
+            or not SHA256_PATTERN.fullmatch(content_hash.lower())
+        ):
+            raise ValueError(
+                f"Ungültiger Pipeline-SHA-256 für Drive-ID {row['drive_id']}"
+            )
         indexed[(path, int(row["size"]))].append({
             "drive_id": str(row["drive_id"]),
             "path": str(row["path"]),
             "size_bytes": int(row["size"]),
-            "hash_type": str(row["hash_type"]).lower(),
-            "content_hash": str(row["content_hash"]).lower(),
+            "hash_type": hash_type,
+            "content_hash": str(content_hash).lower(),
             "drive_mod_time": row["mod_time"],
             "job_status": row["job_status"],
             "transcript_path": row["transcript_path"],
@@ -223,14 +241,13 @@ def pipeline_candidates(db: sqlite3.Connection) -> dict[tuple[str, int], list[di
 def verified_phone_sha256(row: sqlite3.Row) -> str | None:
     """Return a usable phone hash only when its status explicitly verifies it."""
     value = row["sha256"]
-    if row["hash_status"] != "VERIFIED" or not isinstance(value, str):
+    if row["hash_status"] != "VERIFIED":
         return None
-    normalized = value.lower()
-    if not SHA256_PATTERN.fullmatch(normalized):
+    if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value.lower()):
         raise ValueError(
             f"Ungültiger verifizierter SHA-256 für {row['inventory_id']}"
         )
-    return normalized
+    return value.lower()
 
 
 def plan_item(
@@ -295,10 +312,17 @@ def build_backup_plan(
 ) -> dict[str, Any]:
     """Build one deterministic, fully read-only backup evidence plan."""
     validate_states(inventory_db, pipeline_db)
-    epoch = current_epoch(inventory_db, device_id, epoch_id)
-    phones = phone_recordings(
-        inventory_db, device_id, str(epoch["epoch_id"]), selected_numbers
-    )
+    inventory_db.execute("BEGIN")
+    try:
+        epoch = current_epoch(inventory_db, device_id, epoch_id)
+        phones = phone_recordings(
+            inventory_db, device_id, str(epoch["epoch_id"]), selected_numbers
+        )
+        inventory_scan = latest_scan(
+            inventory_db, device_id, str(epoch["epoch_id"])
+        )
+    finally:
+        inventory_db.rollback()
     indexed = pipeline_candidates(pipeline_db)
     items = [
         plan_item(
@@ -325,9 +349,7 @@ def build_backup_plan(
             "device_id": device_id,
             "epoch_id": str(epoch["epoch_id"]),
             "coverage_from": str(epoch["coverage_from"]),
-            "latest_inventory_scan": latest_scan(
-                inventory_db, device_id, str(epoch["epoch_id"])
-            ),
+            "latest_inventory_scan": inventory_scan,
         },
         "summary": {
             "recordings": len(items),

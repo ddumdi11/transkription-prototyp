@@ -4,8 +4,9 @@ import json
 import sqlite3
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import closing, redirect_stderr, redirect_stdout
 from pathlib import Path
+import unicodedata
 
 from plan_audiorec_backup import (
     build_backup_plan,
@@ -32,7 +33,7 @@ class AudioRecBackupPlanTest(unittest.TestCase):
 
     def _create_inventory(self):
         """Create the minimal supported phone inventory schema."""
-        with sqlite3.connect(self.inventory) as db:
+        with closing(sqlite3.connect(self.inventory)) as db:
             db.executescript(
                 """CREATE TABLE inventory_epochs (
                        device_id TEXT, epoch_id TEXT, coverage_from TEXT,
@@ -59,10 +60,11 @@ class AudioRecBackupPlanTest(unittest.TestCase):
                 "INSERT INTO inventory_scans VALUES (?,?,?,?)",
                 ("scan-1", "phone", "epoch-1", "2026-11-07T10:00:00Z"),
             )
+            db.commit()
 
     def _create_pipeline(self):
         """Create the minimal supported transcription pipeline schema."""
-        with sqlite3.connect(self.pipeline) as db:
+        with closing(sqlite3.connect(self.pipeline)) as db:
             db.executescript(
                 """CREATE TABLE IF NOT EXISTS files (
                        drive_id TEXT PRIMARY KEY, path TEXT, size INTEGER,
@@ -75,6 +77,7 @@ class AudioRecBackupPlanTest(unittest.TestCase):
                        drive_id TEXT PRIMARY KEY, remote_id TEXT, remote_path TEXT
                    );"""
             )
+            db.commit()
 
     def add_phone(
         self,
@@ -85,10 +88,11 @@ class AudioRecBackupPlanTest(unittest.TestCase):
         hash_status: str = "NOT_COMPUTED",
         present: bool = True,
         current: bool = True,
+        name: str | None = None,
     ) -> None:
         """Add one current-style phone recording fixture."""
-        name = f"Aufnahme #{number}.wav"
-        with sqlite3.connect(self.inventory) as db:
+        name = name or f"Aufnahme #{number}.wav"
+        with closing(sqlite3.connect(self.inventory)) as db:
             db.execute(
                 """INSERT INTO inventory_recordings VALUES
                    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -99,6 +103,7 @@ class AudioRecBackupPlanTest(unittest.TestCase):
                     "PRESENT" if present else "MISSING", int(current), "scan-1",
                 ),
             )
+            db.commit()
 
     def add_pipeline(
         self,
@@ -113,7 +118,7 @@ class AudioRecBackupPlanTest(unittest.TestCase):
     ) -> None:
         """Add one pipeline candidate and optional publication evidence."""
         name = path or f"Aufnahme #{number}.wav"
-        with sqlite3.connect(self.pipeline) as db:
+        with closing(sqlite3.connect(self.pipeline)) as db:
             db.execute(
                 "INSERT INTO files VALUES (?,?,?,?,?,?)",
                 (drive_id, name, size, digest, hash_type, "2026-11-07T10:00:00Z"),
@@ -127,6 +132,7 @@ class AudioRecBackupPlanTest(unittest.TestCase):
                     "INSERT INTO published_transcripts VALUES (?,?,?)",
                     (drive_id, f"remote-{drive_id}", f"{drive_id}.md"),
                 )
+            db.commit()
 
     def plan(self, selected_numbers=None):
         """Build a fixture plan through read-only connections."""
@@ -179,17 +185,29 @@ class AudioRecBackupPlanTest(unittest.TestCase):
         """Loose basename or size matches cannot become pipeline candidates."""
         self.add_phone(1, size=100)
         self.add_phone(2, size=200)
+        nfc_name = "Aufnahme #3 ä.wav"
+        nfd_name = unicodedata.normalize("NFD", nfc_name)
+        self.add_phone(3, size=300, name=nfc_name)
+        self.add_phone(4, size=400, name=nfd_name.replace("#3", "#4"))
         self.add_pipeline(1, "wrong-size", "a" * 64, size=101)
         self.add_pipeline(
             2, "wrong-path", "b" * 64, size=200,
             path="Unterordner/Aufnahme #2.wav",
+        )
+        self.add_pipeline(3, "nfd-path", "c" * 64, size=300, path=nfd_name)
+        self.add_pipeline(
+            4, "nfc-path", "d" * 64, size=400,
+            path=nfc_name.replace("#3", "#4"),
         )
 
         plan = self.plan()
 
         self.assertEqual(
             [item["match_status"] for item in plan["items"]],
-            ["NO_PIPELINE_MATCH", "NO_PIPELINE_MATCH"],
+            [
+                "NO_PIPELINE_MATCH", "NO_PIPELINE_MATCH",
+                "PHONE_HASH_REQUIRED", "PHONE_HASH_REQUIRED",
+            ],
         )
 
     def test_selection_rejects_unknown_numbers_and_filters_known_rows(self):
@@ -225,9 +243,31 @@ class AudioRecBackupPlanTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Ungültiger"):
             self.plan()
 
+    def test_null_verified_phone_hash_fails_closed(self):
+        """VERIFIED cannot silently downgrade when its digest is absent."""
+        self.add_phone(1, sha256=None, hash_status="VERIFIED")
+        self.add_pipeline(1, "id-1", "a" * 64)
+
+        with self.assertRaisesRegex(ValueError, "Ungültiger verifizierter"):
+            self.plan()
+
+    def test_invalid_pipeline_sha256_fails_closed(self):
+        """Malformed pipeline SHA-256 evidence cannot drive classification."""
+        self.add_phone(1)
+        self.add_pipeline(1, "id-1", "not-a-hash")
+
+        with self.assertRaisesRegex(ValueError, "Pipeline-SHA-256"):
+            self.plan()
+
     def test_plan_is_deterministic_and_reports_latest_snapshot(self):
         """Identical database snapshots produce byte-equivalent plan data."""
         self.add_phone(1)
+        with closing(sqlite3.connect(self.inventory)) as db:
+            db.execute(
+                "INSERT INTO inventory_scans VALUES (?,?,?,?)",
+                ("scan-2", "phone", "epoch-1", "2026-11-07T11:00:00Z"),
+            )
+            db.commit()
 
         first = self.plan()
         second = self.plan()
@@ -235,8 +275,17 @@ class AudioRecBackupPlanTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(
             first["sources"]["latest_inventory_scan"],
-            {"scan_id": "scan-1", "scanned_at": "2026-11-07T10:00:00Z"},
+            {"scan_id": "scan-2", "scanned_at": "2026-11-07T11:00:00Z"},
         )
+
+    def test_readonly_context_closes_connection(self):
+        """Leaving the read-only context closes its SQLite handle."""
+        with open_readonly_state(self.inventory, "inventory") as db:
+            handle = db
+            self.assertEqual(handle.execute("SELECT 1").fetchone()[0], 1)
+
+        with self.assertRaises(sqlite3.ProgrammingError):
+            handle.execute("SELECT 1")
 
     def test_cli_keeps_both_database_files_unchanged(self):
         """The command reads existing states without changing their bytes."""
@@ -265,8 +314,9 @@ class AudioRecBackupPlanTest(unittest.TestCase):
 
     def test_incomplete_schema_and_wrong_epoch_are_rejected(self):
         """Missing evidence tables and stale epoch selections fail closed."""
-        with sqlite3.connect(self.pipeline) as db:
+        with closing(sqlite3.connect(self.pipeline)) as db:
             db.execute("DROP TABLE published_transcripts")
+            db.commit()
         with self.assertRaisesRegex(ValueError, "unvollständig"):
             self.plan()
 
