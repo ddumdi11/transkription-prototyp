@@ -349,7 +349,20 @@ class AudioRecBackupPlanTest(unittest.TestCase):
             open_readonly_state(self.inventory, "inventory") as inventory_db,
             open_readonly_state(self.pipeline, "pipeline") as pipeline_db,
         ):
-            inventory_db.autocommit = True
+            if hasattr(inventory_db, "autocommit"):
+                inventory_db.autocommit = True
+            else:
+                inventory_db.isolation_level = None
+            with self.assertRaisesRegex(ValueError, "Unbekannte"):
+                build_backup_plan(
+                    inventory_db,
+                    pipeline_db,
+                    inventory_state=self.inventory,
+                    pipeline_state=self.pipeline,
+                    device_id="phone",
+                    selected_numbers={999},
+                )
+            self.assertFalse(inventory_db.in_transaction)
             first = build_backup_plan(
                 inventory_db,
                 pipeline_db,
@@ -366,7 +379,49 @@ class AudioRecBackupPlanTest(unittest.TestCase):
             )
 
             self.assertEqual(first, second)
-            self.assertIs(inventory_db.autocommit, True)
+            if hasattr(inventory_db, "autocommit"):
+                self.assertIs(inventory_db.autocommit, True)
+            else:
+                self.assertIsNone(inventory_db.isolation_level)
+            self.assertFalse(inventory_db.in_transaction)
+
+    def test_default_connection_reads_new_snapshot_on_repeated_plan(self):
+        """Each default-mode plan ends before a newer committed scan is read."""
+        self.add_phone(1)
+        with (
+            open_readonly_state(self.inventory, "inventory") as inventory_db,
+            open_readonly_state(self.pipeline, "pipeline") as pipeline_db,
+        ):
+            first = build_backup_plan(
+                inventory_db,
+                pipeline_db,
+                inventory_state=self.inventory,
+                pipeline_state=self.pipeline,
+                device_id="phone",
+            )
+            self.assertFalse(inventory_db.in_transaction)
+
+            with closing(sqlite3.connect(self.inventory)) as writer:
+                writer.execute(
+                    "INSERT INTO inventory_scans VALUES (?,?,?,?)",
+                    ("scan-2", "phone", "epoch-1", "2026-11-07T11:00:00Z"),
+                )
+                writer.commit()
+
+            second = build_backup_plan(
+                inventory_db,
+                pipeline_db,
+                inventory_state=self.inventory,
+                pipeline_state=self.pipeline,
+                device_id="phone",
+            )
+
+            self.assertEqual(
+                first["sources"]["latest_inventory_scan"]["scan_id"], "scan-1"
+            )
+            self.assertEqual(
+                second["sources"]["latest_inventory_scan"]["scan_id"], "scan-2"
+            )
             self.assertFalse(inventory_db.in_transaction)
 
     def test_readonly_context_closes_connection(self):
