@@ -334,7 +334,7 @@ def build_backup_plan(
         )
     finally:
         if owns_inventory_transaction and inventory_db.in_transaction:
-            inventory_db.rollback()
+            inventory_db.execute("ROLLBACK")
     indexed = pipeline_candidates(pipeline_db)
     items = [
         plan_item(

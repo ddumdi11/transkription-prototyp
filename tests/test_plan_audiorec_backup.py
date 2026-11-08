@@ -349,7 +349,7 @@ class AudioRecBackupPlanTest(unittest.TestCase):
             open_readonly_state(self.inventory, "inventory") as inventory_db,
             open_readonly_state(self.pipeline, "pipeline") as pipeline_db,
         ):
-            inventory_db.isolation_level = None
+            inventory_db.autocommit = True
             first = build_backup_plan(
                 inventory_db,
                 pipeline_db,
@@ -366,6 +366,7 @@ class AudioRecBackupPlanTest(unittest.TestCase):
             )
 
             self.assertEqual(first, second)
+            self.assertIs(inventory_db.autocommit, True)
             self.assertFalse(inventory_db.in_transaction)
 
     def test_readonly_context_closes_connection(self):
