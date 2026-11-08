@@ -780,6 +780,21 @@ optional die WAV-Köpfe; der schnelle Standardscan vermeidet diese vielen
 MTP-Zugriffe. Details stehen in
 [`docs/INBOX_WATCHER.md`](docs/INBOX_WATCHER.md#audiorec-smartphone-inventur-v01).
 
+Der ebenfalls rein lesende Sicherungsplaner gleicht einen gespeicherten
+Inventarstand mit den historischen Pipeline-Belegen ab:
+
+```bash
+.venv/bin/python plan_audiorec_backup.py --device-id audiorec-a53
+```
+
+Ein eindeutiger Treffer über Dateiname und Größe liefert nur einen Kandidaten
+für den bekannten Pipeline-Hash (`PHONE_HASH_REQUIRED`). Erst ein späterer
+verifizierter Smartphone-Hash kann `CONTENT_HASH_MATCH` ergeben; auch dieser
+Status verlangt anschließend noch eine aktuelle Remote-Prüfung. Der Planer
+fragt weder Drive noch das Smartphone ab, schreibt keine Datenbank und bestätigt
+keine Sicherung. Einzelne Nummern lassen sich wiederholbar mit
+`--recording-number` auswählen; `--json` gibt den vollständigen Plan aus.
+
 ---
 
 ## Projektübergreifender Entwurf

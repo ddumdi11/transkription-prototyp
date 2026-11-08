@@ -263,6 +263,43 @@ als löschbar einstufen. v0.1 berechnet keine vollständigen Datei-Hashes, führ
 keinen Drive-/Pipeline-Abgleich durch, verändert AudioRec nicht und kennt keine
 Löschaktion oder Löschfreigabe.
 
+### Sicherungsplanung aus lokalem Inventar (v0.2)
+
+`plan_audiorec_backup.py` liest die getrennte AudioRec-Inventardatenbank und
+den Pipeline-State im SQLite-Lesemodus. Es findet Kandidaten ausschließlich
+über den Unicode-normalisierten vollständigen Dateinamen und die Bytegröße:
+
+```bash
+.venv/bin/python plan_audiorec_backup.py \
+  --inventory-state .inbox-watcher/audiorec-inventory.sqlite3 \
+  --pipeline-state .inbox-watcher/state.sqlite3 \
+  --device-id audiorec-a53
+```
+
+Die wichtigsten Planwerte sind:
+
+- `NO_PIPELINE_MATCH`: Kein Pipeline-Eintrag mit genau Name und Größe; zunächst
+  remote suchen oder nach weiterer Prüfung sichern.
+- `PHONE_HASH_REQUIRED`: Alle passenden Pipeline-Einträge verweisen auf
+  denselben Inhalts-Hash, aber der Smartphone-Inhalt wurde noch nicht gehasht.
+- `MULTIPLE_PIPELINE_HASHES`: Name und Größe führen auf widersprüchliche
+  Inhalts-Hashes; manuelle Prüfung nötig.
+- `CONTENT_HASH_MATCH`: Ein ausdrücklich als `VERIFIED` gespeicherter
+  Smartphone-SHA-256 stimmt mit dem Pipeline-Hash überein.
+- `CONTENT_HASH_MISMATCH`: Der verifizierte Smartphone-Hash weicht ab.
+
+Auch `CONTENT_HASH_MATCH` beweist noch keine aktuelle Drive-Sicherung. Der
+Plan enthält deshalb immer `backup_status: NOT_PROVEN`, bis eine spätere Stufe
+den Remote-Bestand live geprüft hat. Mehrere Drive-IDs mit demselben Inhalt
+gelten nicht als Inhaltskonflikt. Drive-Zeitstempel werden nicht als
+Aufnahmezeit interpretiert. Der Planer verwendet kein Netzwerk, schreibt keine
+Berichte oder Datenbanken und kennt keine Kopier- oder Löschaktion.
+
+Mit wiederholtem `--recording-number NUMMER` kann eine Teilmenge ausgewählt
+werden; unbekannte aktuelle Nummern brechen geschlossen ab. `--json` gibt den
+vollständigen deterministischen Plan einschließlich der Pipeline-Kandidaten
+aus.
+
 ## Transkripte veröffentlichen (v0.2)
 
 `publish_transcripts.py` zeigt standardmäßig nur den Plan aller erfolgreichen,
