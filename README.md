@@ -438,6 +438,36 @@ Die bestätigte Ausführung aktualisiert atomar ausschließlich die
 Versionsbindung und den versionsgebundenen Kandidatenfingerabdruck in der
 lokalen QA-Datenbank. Transkripte, Segmentdateien und Drive bleiben unverändert.
 
+Ältere Segmentdateien besitzen teilweise noch keinen eingebetteten
+`transcript_sha256` und bleiben deshalb bei Archiv- und QA-Prüfungen
+vorsorglich gesperrt. Der Legacy-Metadaten-Binder plant ihre Nachbindung
+zunächst vollständig lesend:
+
+```bash
+.venv/bin/python bind_legacy_segment_metadata.py
+.venv/bin/python bind_legacy_segment_metadata.py --eligible-only --json
+```
+
+`ELIGIBLE` setzt voraus, dass Drive-ID, veröffentlichter lokaler Hash,
+Dateiname und der aus allen Segmenttexten rekonstruierte Transkriptkörper
+übereinstimmen. LLM-korrigierte oder abweichende Transkripte bleiben auf
+`HOLD`. `--eligible-only` nimmt ausschließlich vollständig belegte Fälle in
+den hash-gebundenen Plan auf; die Anzahl beobachteter HOLD-Fälle bleibt Teil
+des Plan-Hashes. Erst die Wiederholung mit exakt diesem Hash schreibt:
+
+```bash
+.venv/bin/python bind_legacy_segment_metadata.py \
+  --eligible-only \
+  --confirm-plan-sha256 SHA256_AUS_DEM_DRY_RUN
+```
+
+Der bestätigte Lauf ergänzt ausschließlich den Transkripthash in jeder
+unveränderten Segmentdatei. Die Installation erfolgt pro Datei atomar und
+dauerhaft, der ursprüngliche Datei-Zeitstempel bleibt erhalten. Ein inzwischen
+verändertes Transkript, eine veränderte Segmentdatei oder ein anderer
+beobachteter Status entwertet den Plan. Weder Transkript, Pipeline-Datenbank
+noch Drive werden geändert.
+
 Ein ausdrücklich bestätigtes Korrekturbeispiel kann anschließend zunächst als
 Dry-Run geplant werden:
 
