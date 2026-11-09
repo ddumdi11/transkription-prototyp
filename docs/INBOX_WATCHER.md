@@ -367,6 +367,15 @@ Drive-Dateien und gibt keine WAV-Datei zur Löschung frei. Sicherheitsgrenzen,
 Prüfschritte und Ausbaustufen stehen in
 [`AUDIO_ARCHIVING_PLAN.md`](AUDIO_ARCHIVING_PLAN.md).
 
+Segmentdateien aus der Zeit vor der Versionsbindung können mit
+`bind_legacy_segment_metadata.py` zunächst rein lesend geprüft werden. Nur
+wenn veröffentlichter Transkripthash, Drive-ID, Dateiname und der vollständig
+aus den Segmenten rekonstruierte Textkörper zusammenpassen, erscheint ein Fall
+als `ELIGIBLE`. `--eligible-only` erzeugt daraus einen bestätigbaren Plan; erst
+`--confirm-plan-sha256` ergänzt den Hash atomar in den unveränderten
+Segmentdateien. HOLD-Fälle, LLM-korrigierte Texte, Transkripte und Drive bleiben
+unangetastet.
+
 Die lokale Ausbaustufe v0.2 wird getrennt und nur nach ausdrücklichem
 `--confirm` über `convert_audio_archive.py` gestartet. Sie erzeugt ein atomar
 installiertes FLAC-Paket und vergleicht den vollständig dekodierten PCM-Inhalt

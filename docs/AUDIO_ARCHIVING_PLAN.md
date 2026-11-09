@@ -76,6 +76,39 @@ verlustfreie Archivkopie nicht, blockieren aber eine spätere Bereinigung.
 `cleanup_ready` bleibt in v0.1 ausnahmslos `false`, weil weder ein verifiziertes
 FLAC noch eine Aufbewahrungsrichtlinie existiert.
 
+### Legacy-Segmentdaten versionssicher binden
+
+Ältere, ansonsten gültige Segmentdateien enthalten noch keinen
+`transcript_sha256`. Der Archivplaner behandelt sie deshalb als
+`METADATA_INVALID`. Der Binder prüft sie zunächst ohne Schreibzugriff:
+
+```bash
+.venv/bin/python bind_legacy_segment_metadata.py
+.venv/bin/python bind_legacy_segment_metadata.py --eligible-only --json
+```
+
+Eine Aufnahme ist nur `ELIGIBLE`, wenn die lokale Transkriptdatei exakt zum
+veröffentlichten Hash und zur veröffentlichten Größe passt, die Segmentdatei
+zur Drive-ID und zum Transkriptdateinamen gehört und ihr geordneter Segmenttext
+den vollständigen Transkriptkörper bis auf Leerraum rekonstruiert. Ein als
+LLM-korrigiert gekennzeichnetes Transkript bleibt gesperrt. Der Plan bindet
+seine Auswahl und die beobachteten Statuszahlen über `plan_sha256`.
+
+Erst ein zweiter Lauf mit unverändertem Plan darf die fehlenden Hashes
+ergänzen:
+
+```bash
+.venv/bin/python bind_legacy_segment_metadata.py \
+  --eligible-only \
+  --confirm-plan-sha256 SHA256_AUS_DEM_DRY_RUN
+```
+
+Jede Segmentdatei wird dabei einzeln atomar und mit erhaltenem Zeitstempel
+installiert. Unvermittelte Unterbrechungen können daher höchstens zu einem
+teilweise abgearbeiteten, aber konsistenten Bestand führen; ein neuer Dry-Run
+weist bereits gebundene Dateien als `ALREADY_BOUND` aus und plant den Rest neu.
+Transkripte, Pipeline-Datenbank, WAV-Dateien und Drive werden nicht verändert.
+
 ## Lokale FLAC-Konvertierung v0.2
 
 `convert_audio_archive.py` übernimmt genau einen `CANDIDATE` aus dem Archivplan.
