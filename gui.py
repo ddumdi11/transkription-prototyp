@@ -19,7 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 import merge_collect as mc
-from project_glossary import glossary_hotwords, glossary_prompt
+from project_glossary import glossary_prompt
 
 # .env laden für API-Key Check
 load_dotenv()
@@ -85,10 +85,16 @@ class TranscriptionGUI:
         )
         hotwords = setting_or_env(
             settings, "hotwords", "AUDIOREC_HOTWORDS",
-            lambda: ", ".join(glossary_hotwords()),
+            lambda: "",
         )
         self.prompt = tk.StringVar(value=prompt)
         self.hotwords = tk.StringVar(value=hotwords)
+        # Bestehende gespeicherte Listen werden nicht stillschweigend erneut
+        # aktiviert. Hotwords koennen bei langen Aufnahmen Text auslassen und
+        # bleiben daher ein ausdruecklicher, experimenteller Opt-in.
+        self.hotwords_enabled = tk.BooleanVar(
+            value=settings.get("hotwords_enabled", False)
+        )
         self.move_after_join = tk.BooleanVar(value=settings.get("move_after_join", True))
         self.force_retranscribe = tk.BooleanVar(value=False)
 
@@ -246,6 +252,7 @@ class TranscriptionGUI:
             "output_folder": self.output_folder.get(),
             "prompt": self.prompt.get(),
             "hotwords": self.hotwords.get(),
+            "hotwords_enabled": self.hotwords_enabled.get(),
             "move_after_join": self.move_after_join.get(),
             "no_replacements": self.no_replacements.get(),
             "workflow_mode": self.workflow_mode.get(),
@@ -468,10 +475,15 @@ class TranscriptionGUI:
 
         ttk.Label(
             options_frame,
-            text="Hotwords (nur lokal, kommagetrennt):",
+            text="Hotwords (nur lokal, experimentell, kommagetrennt):",
         ).pack(anchor=tk.W)
         hotwords_entry = ttk.Entry(options_frame, textvariable=self.hotwords)
         hotwords_entry.pack(fill=tk.X, pady=(2, 5))
+        ttk.Checkbutton(
+            options_frame,
+            text="Hotwords ausdrücklich aktivieren (bei langen Aufnahmen riskant)",
+            variable=self.hotwords_enabled,
+        ).pack(anchor=tk.W, pady=(0, 5))
 
         # Weitere Optionen
         ttk.Checkbutton(
@@ -669,7 +681,11 @@ class TranscriptionGUI:
         if self.prompt.get().strip():
             cmd.extend(["--prompt", self.prompt.get()])
 
-        if self._current_provider() == "local" and self.hotwords.get().strip():
+        if (
+            self._current_provider() == "local"
+            and self.hotwords_enabled.get()
+            and self.hotwords.get().strip()
+        ):
             cmd.extend(["--hotwords", self.hotwords.get()])
 
         if self.force_retranscribe.get():

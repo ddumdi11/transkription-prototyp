@@ -86,6 +86,8 @@ class InboxPipelineTest(unittest.TestCase):
             self.assertTrue(check)
             self.assertIn("--write-segments", command)
             self.assertIn("--force", command)
+            self.assertIn("--prompt", command)
+            self.assertNotIn("--hotwords", command)
             source_index = command.index("--source-id")
             self.assertEqual(command[source_index + 1], "drive-id")
             (output_dir / f"{audio_path.stem}.md").write_text(
@@ -101,6 +103,7 @@ class InboxPipelineTest(unittest.TestCase):
             )
 
         with (patch("inbox_pipeline.OUTPUT_DIR", output_dir),
+              patch("inbox_pipeline.HOTWORDS", ""),
               patch("inbox_pipeline.subprocess.run", side_effect=create_outputs)):
             transcript = transcribe_one(
                 self.db, "drive-id", audio_path, now=1000
@@ -111,6 +114,37 @@ class InboxPipelineTest(unittest.TestCase):
             "SELECT status FROM transcription_jobs WHERE drive_id='drive-id'"
         ).fetchone()
         self.assertEqual(row["status"], "DONE")
+
+    def test_transcribe_one_passes_explicit_hotword_override(self):
+        audio_path = Path(self.temp.name) / "Aufnahme #1__drive-id.wav"
+        audio_path.write_bytes(b"audio")
+        output_dir = Path(self.temp.name) / "transcripts"
+
+        def create_outputs(command, check):
+            self.assertTrue(check)
+            hotwords_index = command.index("--hotwords")
+            self.assertEqual(command[hotwords_index + 1], "Traktat")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / f"{audio_path.stem}.md").write_text(
+                "Transkript", encoding="utf-8"
+            )
+            (output_dir / f"{audio_path.stem}.segments.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "source_id": "drive-id",
+                    "segments": [],
+                }),
+                encoding="utf-8",
+            )
+
+        with (patch("inbox_pipeline.OUTPUT_DIR", output_dir),
+              patch("inbox_pipeline.HOTWORDS", "Traktat"),
+              patch("inbox_pipeline.subprocess.run", side_effect=create_outputs)):
+            transcript = transcribe_one(
+                self.db, "drive-id", audio_path, now=1000
+            )
+
+        self.assertEqual(transcript, output_dir / f"{audio_path.stem}.md")
 
     def test_transcribe_one_fails_when_segment_metadata_is_missing(self):
         audio_path = Path(self.temp.name) / "Aufnahme #2__drive-id.wav"

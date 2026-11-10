@@ -3,14 +3,17 @@
 ## Aktueller Stand
 
 Die lokale faster-whisper-Engine unterstützt einen Kontext-Prompt und eine
-separate Hotword-Liste. Die automatische Pipeline liest sie aus
-`AUDIOREC_PROMPT` und `AUDIOREC_HOTWORDS`; die GUI speichert beide Angaben in
-ihren Einstellungen.
+separate Hotword-Liste. Der Kontext-Prompt bleibt der Standard. Hotwords sind
+nach einem reproduzierbaren Vergleich mit massiven Textauslassungen bei einer
+langen Aufnahme nur noch ein experimenteller Opt-in: Die automatische Pipeline
+verwendet sie ausschließlich bei einem ausdrücklich gesetzten
+`AUDIOREC_HOTWORDS`, und die GUI verlangt zusätzlich eine Aktivierung.
 
-Die Standardwerte und sicheren Ersetzungen stammen aus
-`project_glossary.json`. Routingvarianten können dort demselben kanonischen
-Begriff und einem oder mehreren Projekten zugeordnet werden. Damit bleibt das
-projektspezifische Vokabular an einer zentralen Stelle prüfbar.
+Prompt-Vokabular und sichere Ersetzungen stammen aus `project_glossary.json`.
+Routingvarianten können dort demselben kanonischen Begriff und einem oder
+mehreren Projekten zugeordnet werden. Hotword-Einträge bleiben für kontrollierte
+Versuche erhalten, werden aber nicht mehr automatisch für Volltranskriptionen
+übernommen.
 
 Hotwords sind Hinweise für die Erkennung. Sie sind keine Textersetzungen und
 belegen daher allein noch nicht, dass ein Wort falsch erkannt oder korrigiert
