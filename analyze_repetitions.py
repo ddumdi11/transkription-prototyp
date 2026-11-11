@@ -131,7 +131,14 @@ def build_repetition_report(
     for item in findings:
         item["first_start_seconds"] = times[item["first_word_index"]] if times else None
         item["repeat_start_seconds"] = times[item["repeat_word_index"]] if times else None
-    repeated = sum(item["length_words"] for item in findings)
+    # Neighbouring findings may overlap by up to min_words - 1 words; count
+    # each repeated word once so repeated_ratio cannot exceed the real share.
+    repeated = len({
+        index
+        for item in findings
+        for index in range(item["repeat_word_index"],
+                           item["repeat_word_index"] + item["length_words"])
+    })
     return {
         "file": str(path),
         "source": source,

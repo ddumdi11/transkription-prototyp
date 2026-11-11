@@ -130,6 +130,18 @@ class ReportFileTest(unittest.TestCase):
         self.assertEqual(report["summary"]["findings"], 1)
         self.assertIsNone(report["findings"][0]["repeat_start_seconds"])
 
+    def test_overlapping_findings_count_repeated_words_once(self):
+        """Überlappende Fundstellen bleiben getrennt, zählen in der Summe aber einfach."""
+        x = filler("x", 12).split()
+        text = " ".join([*x[0:8], FILLER, *x[4:12], FILLER_B, *x])
+        path = self.root / "Ueberlappung.md"
+        path.write_text(text, encoding="utf-8")
+        report = build_repetition_report(path)
+        self.assertEqual([f["length_words"] for f in report["findings"]], [8, 8])
+        self.assertEqual([f["repeat_word_index"] for f in report["findings"]], [56, 60])
+        self.assertEqual(report["summary"]["repeated_words"], 12)
+        self.assertEqual(report["summary"]["repeated_ratio"], round(12 / 68, 4))
+
     def test_segments_use_raw_text_and_report_times(self):
         """Segmentdatei: ASR-Rohtext wird geprüft, Startzeiten werden gemeldet."""
         report = build_repetition_report(self._segments())
