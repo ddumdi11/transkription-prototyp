@@ -29,7 +29,14 @@ für lange/technische Diktate gezielt `gpt-4o-transcribe` (Details in der Tabell
 
 **Hinweise:**
 
-- Lokale Läufe nutzen einen VAD-Filter (Stille-Erkennung), der Wiederholungsartefakte reduziert (abschaltbar).
+- Lokale Läufe nutzen standardmäßig einen VAD-Filter (Stille-Erkennung) und
+  konditionieren Folgesegmente auf den bisherigen Text. Beides bleibt der
+  Standard und lässt sich mit `--no-vad` bzw. `--no-condition-on-previous-text`
+  (GUI: zwei Checkboxen bei Engine „Lokal“) abschalten. VAD aus kann die
+  Segmentgrenzen an langen Sprechpausen verbessern; Kontext aus kann
+  Wiederholungsschleifen durchbrechen, kostet aber Kohärenz. Keine der beiden
+  Optionen ist eine allgemeine Qualitätsverbesserung für jede Aufnahme; sie
+  sind unabhängig von Hotwords, die standardmäßig aus bleiben.
 - Die gpt-4o-Modelle haben ein Limit von ~23 Min pro Datei; lange Aufnahmen werden automatisch geteilt. `whisper-1` und die lokalen Modelle haben kein solches Limit.
 - **Der größte Qualitätshebel ist die Aufnahme selbst** — gutes Mikrofon, wenig Wind/Nebengeräusch — mehr als die Modellwahl.
 - Der `--prompt` wirkt als Vokabular-Hinweis: trage wiederkehrende Eigennamen und Fachbegriffe ein, das verbessert die Erkennung bei beiden Engines.
@@ -136,6 +143,10 @@ Die GUI bietet drei Hauptaktionen:
 - **Output-Ordner**: Ordner für Transkripte (Standard: `output`)
 - **Kontext-Prompt**: Fachbegriffe für bessere Erkennung
 - **Hotwords**: zusätzliche kommagetrennte Hinweisbegriffe für faster-whisper
+- **Lokale Decoder-Optionen** (nur Engine „Lokal“): „Spracherkennung/Stillefilter
+  (VAD) verwenden“ und „Folgesegmente auf vorherigem Text konditionieren“, beide
+  standardmäßig an. Der protokollierte Befehl enthält stets ausdrücklich
+  `--vad`/`--no-vad` und `--condition-on-previous-text`/`--no-condition-on-previous-text`.
 - **Automatische Ersetzungen**: Korrigiert bekannte Erkennungsfehler
 
 ---
@@ -563,6 +574,8 @@ kanonische Transkripte. Das zugehörige Vertragsschema liegt unter
 | `--output-dir` | Ausgabeordner (Standard: `output`) |
 | `--suffix` | Dateiendung (Standard: `.md`) |
 | `--prompt` | Kontext-Prompt für bessere Erkennung |
+| `--vad` / `--no-vad` | Nur `local`: VAD-Stillefilter ein/aus. Ohne Angabe: an (Provider-Default) |
+| `--condition-on-previous-text` / `--no-condition-on-previous-text` | Nur `local`: Folgesegmente auf bisherigen Text konditionieren ein/aus. Ohne Angabe: an |
 | `--no-replacements` | Standard-Ersetzungen deaktivieren |
 | `--no-markdown-title` | Markdown-Titel weglassen |
 | `--metadata-header` | Metadaten-Kopf je Transkript (Aufnahme-Nr., Datum, Modell, Quelle, Status) — für den Einzeldatei-Workflow |
@@ -596,6 +609,9 @@ python transcribe.py input --output-dir meine_transkripte
 
 # Bereits transkribierte Dateien erneut verarbeiten
 python transcribe.py input --force
+
+# Lokal ohne VAD (z. B. wenn Segmente lange Sprechpausen überspannen)
+python transcribe.py input --provider local --model medium --no-vad
 ```
 
 ---
