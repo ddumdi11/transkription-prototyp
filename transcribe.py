@@ -461,6 +461,20 @@ def collect_audio_files(input_path: Path) -> list[Path]:
     raise FileNotFoundError(f"Pfad nicht gefunden: {input_path}")
 
 
+def local_decoder_options(args: argparse.Namespace) -> dict:
+    """Ausdrücklich gesetzte faster-whisper-Schalter für get_provider().
+
+    Nur angegebene Optionen werden weitergereicht; ohne Angabe bleiben die
+    Provider-Defaults (VAD an, Kontext an) unverändert wirksam.
+    """
+    opts = {}
+    if args.vad is not None:
+        opts["vad_filter"] = args.vad
+    if args.condition_on_previous_text is not None:
+        opts["condition_on_previous_text"] = args.condition_on_previous_text
+    return opts
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -567,6 +581,27 @@ def main():
             "(nur Provider local)."
         ),
     )
+    # Decoder-Schalter für faster-whisper. Default None = Option nicht
+    # angegeben -> es greifen die Provider-Defaults (VAD an, Kontext an).
+    parser.add_argument(
+        "--vad",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Stillefilter/Spracherkennung (VAD) von faster-whisper ein- bzw. "
+            "ausschalten (nur Provider local). Ohne Angabe: an."
+        ),
+    )
+    parser.add_argument(
+        "--condition-on-previous-text",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Folgesegmente auf den bisher erkannten Text konditionieren "
+            "(nur Provider local). Ohne Angabe: an. Aus kann "
+            "Wiederholungsschleifen durchbrechen, kostet aber Kohärenz."
+        ),
+    )
     parser.add_argument(
         "--no-replacements",
         action="store_true",
@@ -616,6 +651,14 @@ def main():
     if args.write_segments and args.provider != "local":
         parser.error("--write-segments wird derzeit nur vom Provider local unterstützt")
 
+    decoder_opts = local_decoder_options(args)
+    if decoder_opts and args.provider != "local":
+        parser.error(
+            "--vad/--no-vad und --condition-on-previous-text/"
+            "--no-condition-on-previous-text werden nur vom Provider local "
+            "unterstützt"
+        )
+
     # .env laden (für CORRECTION_*; OpenAIProvider lädt zusätzlich selbst).
     load_dotenv()
 
@@ -631,7 +674,7 @@ def main():
     # verfälscht (einmaliger Fixaufwand, unabhängig von der Audiomenge).
     try:
         t_load = time.perf_counter()
-        provider = get_provider(args.provider, model=args.model)
+        provider = get_provider(args.provider, model=args.model, **decoder_opts)
         load_seconds = time.perf_counter() - t_load
     except (RuntimeError, ValueError) as e:
         print(f"[X] {e}")

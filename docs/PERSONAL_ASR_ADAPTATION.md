@@ -19,6 +19,21 @@ Hotwords sind Hinweise für die Erkennung. Sie sind keine Textersetzungen und
 belegen daher allein noch nicht, dass ein Wort falsch erkannt oder korrigiert
 wurde.
 
+### Decoder-Schalter: VAD und Kontext
+
+Unabhängig von Prompt und Hotwords lassen sich zwei faster-whisper-Parameter
+ausdrücklich setzen: `--vad`/`--no-vad` und
+`--condition-on-previous-text`/`--no-condition-on-previous-text` (GUI: zwei
+Checkboxen bei Engine „Lokal“). Ohne Angabe gelten die bewährten Defaults,
+beide an; die automatische Pipeline setzt keine der Optionen.
+
+- VAD aus kann Segmentgrenzen an langen Sprechpausen verbessern, die mit VAD
+  teils über die Pause hinweg gezogen werden.
+- Kontext aus kann Wiederholungsschleifen durchbrechen, kostet aber Kohärenz.
+- Keine der Optionen ist eine allgemeine Qualitätsverbesserung für jede
+  Aufnahme; sie dienen gezielten Vergleichs- und Wiederholungsläufen.
+- Hotwords bleiben davon unabhängig und standardmäßig aus.
+
 Die lokale Transkriptionsschnittstelle bewahrt inzwischen die von
 faster-whisper gelieferten Segmenttexte und Zeitgrenzen. Mit
 `--write-segments` entsteht neben dem Markdown eine Begleitdatei

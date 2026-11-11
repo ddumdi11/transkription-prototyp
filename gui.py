@@ -53,6 +53,29 @@ WORKFLOW_TEXT_SINGLE = "▶ Kompletter Workflow (Einzeltranskription)"
 WORKFLOW_TEXT_JOIN = "▶ Kompletter Workflow (Zusammenfügen + Transkription)"
 
 
+def bool_setting(settings: dict, key: str, default: bool) -> bool:
+    """Gespeicherten Wahrheitswert lesen; fehlend/ungültig -> sicherer Default."""
+    value = settings.get(key, default)
+    return value if isinstance(value, bool) else default
+
+
+def local_decoder_args(provider: str, vad: bool,
+                       condition_on_previous_text: bool) -> list[str]:
+    """CLI-Schalter für die lokalen Decoder-Optionen.
+
+    Für den lokalen Provider werden beide Werte ausdrücklich ausgegeben, damit
+    ein GUI-Lauf aus dem protokollierten Befehl reproduzierbar ist. OpenAI
+    erhält keine lokalen Decoder-Parameter.
+    """
+    if provider != "local":
+        return []
+    return [
+        "--vad" if vad else "--no-vad",
+        "--condition-on-previous-text" if condition_on_previous_text
+        else "--no-condition-on-previous-text",
+    ]
+
+
 def setting_or_env(settings: dict, key: str, env_key: str, fallback) -> str:
     """Resolve saved setting, then environment, evaluating fallback last."""
     if key in settings:
@@ -119,6 +142,13 @@ class TranscriptionGUI:
         self._model_per_provider.update(settings.get("model_per_provider", {}))
         self.model = tk.StringVar(value=self._model_per_provider[provider])
 
+        # Lokale Decoder-Schalter (faster-whisper). Ältere Einstellungsdateien
+        # ohne diese Felder erhalten die bewährten Defaults: beide an.
+        self.local_vad_filter = tk.BooleanVar(
+            value=bool_setting(settings, "local_vad_filter", True))
+        self.local_condition_on_previous_text = tk.BooleanVar(
+            value=bool_setting(settings, "local_condition_on_previous_text", True))
+
         # === Transkripte zusammenführen (separater Schritt) ===
         # Arbeitet ausschließlich auf bereits gespeicherten .md-Transkripten.
         _ms, _me = mc.default_month_range()
@@ -178,8 +208,10 @@ class TranscriptionGUI:
             provider, DEFAULT_MODEL_BY_PROVIDER[provider]))
         if provider == "local":
             self.engine_hint.config(text="kostenlos, laeuft lokal ohne API-Key/Netz")
+            self.local_options_frame.grid()
         else:
             self.engine_hint.config(text="ca. $0.003/Min (gpt-4o-mini-transcribe)")
+            self.local_options_frame.grid_remove()
 
     def _on_engine_change(self, event=None):
         """Engine gewechselt -> Modell-Dropdown anpassen."""
@@ -260,6 +292,9 @@ class TranscriptionGUI:
             "merge_transcripts": self.merge_transcripts.get(),
             "provider": self._current_provider(),
             "model_per_provider": self._model_per_provider,
+            "local_vad_filter": self.local_vad_filter.get(),
+            "local_condition_on_previous_text":
+                self.local_condition_on_previous_text.get(),
             "correct_enabled": self.correct_enabled.get(),
             "correct_backend": self._current_correct_backend(),
             "correct_model": self.correct_model.get(),
@@ -458,6 +493,21 @@ class TranscriptionGUI:
 
         self.engine_hint = ttk.Label(engine_frame, text="", foreground="gray")
         self.engine_hint.grid(row=2, column=1, sticky=tk.W, pady=(5, 0))
+
+        # Lokale Decoder-Optionen (nur sichtbar bei Engine "Lokal").
+        self.local_options_frame = ttk.Frame(engine_frame)
+        self.local_options_frame.grid(
+            row=3, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
+        ttk.Checkbutton(
+            self.local_options_frame,
+            text="Spracherkennung/Stillefilter (VAD) verwenden",
+            variable=self.local_vad_filter,
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            self.local_options_frame,
+            text="Folgesegmente auf vorherigem Text konditionieren",
+            variable=self.local_condition_on_previous_text,
+        ).pack(anchor=tk.W)
 
         engine_frame.columnconfigure(1, weight=1)
 
@@ -687,6 +737,12 @@ class TranscriptionGUI:
             and self.hotwords.get().strip()
         ):
             cmd.extend(["--hotwords", self.hotwords.get()])
+
+        cmd.extend(local_decoder_args(
+            self._current_provider(),
+            self.local_vad_filter.get(),
+            self.local_condition_on_previous_text.get(),
+        ))
 
         if self.force_retranscribe.get():
             cmd.append("--force")
