@@ -134,6 +134,35 @@ bekannte ASR-Grenze als kontrolliertes Fensterende. Eine Obergrenze von
 standardmäßig 90 Sekunden ab dem nominellen Segmentstart verhindert
 unbegrenzte Ausschnitte; sie ist mit `--max-extended-seconds` einstellbar.
 
+## Längere Wiederholungen rein lesend melden
+
+`eval/loop_check.py` erkennt unmittelbare Decoder-Schleifen. Bei langen
+Aufnahmen tritt zusätzlich ein anderes Muster auf: Ein Satz oder Halbsatz
+erscheint einige Dutzend Wörter später erneut, oft eingebettet in leicht
+abweichenden Text (Beispiel #977 mit faster-whisper: „…in der Automatisierung
+dann später gut funktionieren wird“ dreimal, „diesen Schritt haben wir
+versäumt…“ mehrfach; die OpenAI-Gegenprobe enthielt keine dieser Stellen).
+
+`analyze_repetitions.py` sucht dafür Wort-N-Gramme (Standard: 8 Wörter), die
+ohne Überlappung schon früher vorkamen, fasst zusammenhängende Treffer zu einer
+Fundstelle zusammen und meldet je Fundstelle:
+
+- Länge der wiederholten Wortfolge,
+- Abstand zum nächstliegenden früheren Vorkommen,
+- Anzahl der Vorkommen im gesamten Text,
+- bei einer `.segments.json` die Startzeiten beider Stellen (ASR-Rohtext).
+
+```bash
+.venv/bin/python analyze_repetitions.py \
+  "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json" --json
+```
+
+Das Ergebnis ist ein Verdachtssignal, kein Fehlerurteil. Gesprochene
+Wiederholungen sind möglich (#976: „…das das Beste, weil Punkt, Punkt, Punkt …
+in einem anderen ist das das Beste, weil Punkt, Punkt, Punkt“). Der Prüfer
+entfernt deshalb nie Text, verändert keine Datei und endet auch mit Fundstellen
+mit Exit-Code 0. Er ist nicht in die Inbox-Pipeline eingebunden.
+
 ## Bestätigte Textreparaturen planen
 
 `quality_reviews.py` speichert menschliche Hörentscheidungen getrennt vom

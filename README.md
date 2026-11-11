@@ -302,6 +302,25 @@ bestimmtes Segment zusätzlich auf und `--text-only` überspringt die
 Audioanalyse vollständig. NumPy und Faster-Whisper werden über
 `requirements-local.txt` installiert; `--text-only` benötigt sie nicht.
 
+Längere Wortwiederholungen, wie sie der Decoder bei langen Aufnahmen gelegentlich
+erzeugt (ein Satz taucht einige Dutzend Wörter später erneut auf), meldet ein
+eigener, ebenfalls rein lesender Prüfer:
+
+```bash
+.venv/bin/python analyze_repetitions.py \
+  "staging/transcripts/Aufnahme #1__DRIVE-ID.segments.json"
+```
+
+Er akzeptiert ein Markdown-Transkript oder die Segmentdatei (dann mit Zeitangabe
+je Fundstelle) und meldet jede Wortfolge ab `--min-words` Wörtern (Standard 8),
+die schon einmal vorkam, mit Länge, Abstand und Anzahl der Vorkommen.
+Groß-/Kleinschreibung und Satzzeichen werden beim Vergleich ignoriert;
+`--max-distance` begrenzt den Abstand, `--json` liefert den Bericht
+maschinenlesbar. Die Fundstellen sind nur **Verdachtsstellen**: Absichtliche
+Wiederholungen kommen in Diktaten vor, deshalb wird nie Text entfernt und keine
+Datei verändert. Unmittelbare Schleifen („a b c a b c a b c“) misst weiterhin
+`eval/loop_check.py`.
+
 Dabei bezeichnet ein **ASR-Segment** immer den gesamten Modelldatensatz aus
 Segmenttext, Startzeit und Endzeit. Das **nominelle Zeitintervall** ist nur der
 Audioabschnitt zwischen diesen Zeitangaben. Bei kollabierten oder verschobenen
