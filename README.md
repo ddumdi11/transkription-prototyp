@@ -33,16 +33,19 @@ für lange/technische Diktate gezielt `gpt-4o-transcribe` (Details in der Tabell
 - Die gpt-4o-Modelle haben ein Limit von ~23 Min pro Datei; lange Aufnahmen werden automatisch geteilt. `whisper-1` und die lokalen Modelle haben kein solches Limit.
 - **Der größte Qualitätshebel ist die Aufnahme selbst** — gutes Mikrofon, wenig Wind/Nebengeräusch — mehr als die Modellwahl.
 - Der `--prompt` wirkt als Vokabular-Hinweis: trage wiederkehrende Eigennamen und Fachbegriffe ein, das verbessert die Erkennung bei beiden Engines.
-- Beim lokalen Provider verstärkt `--hotwords` seltene Wörter zusätzlich. Die
-  Liste ist kommagetrennt, beispielsweise `--hotwords "Traktat, MyOwnCents"`.
-  Hotwords beeinflussen die Erkennung; sie ersetzen den Text nicht nachträglich.
+- `--hotwords` bleibt beim lokalen Provider als **experimenteller Opt-in**
+  verfügbar. In einem reproduzierbaren Vergleich mit einer langen Aufnahme
+  führte bereits eine Hotword-Liste allein zu massiven Textauslassungen. Die
+  automatische Pipeline und die GUI aktivieren Hotwords deshalb nicht mehr aus
+  dem Glossar. Der Kontext-Prompt bleibt der sichere Standard.
 
 ### Zentrales Projektglossar
 
 `project_glossary.json` ist die gemeinsame Quelle für projektspezifisches
-Vokabular. Ein Eintrag kann gleichzeitig Hotwords, sichere Erkennungsfehler und
-Routingvarianten definieren. Pipeline, GUI, Textersetzungen und Routing lesen
-diese Datei automatisch. Ein abweichender Pfad kann über
+Vokabular. Ein Eintrag kann gleichzeitig experimentelle Hotwords, sichere
+Erkennungsfehler und Routingvarianten definieren. Prompt, Textersetzungen und
+Routing lesen diese Datei automatisch; Hotwords werden daraus nicht automatisch
+für Volltranskriptionen aktiviert. Ein abweichender Pfad kann über
 `AUDIOREC_GLOSSARY=/pfad/zum/glossar.json` gesetzt werden.
 
 Beispiel:
@@ -55,7 +58,8 @@ Beispiel:
 }
 ```
 
-Umgebungswerte wie `AUDIOREC_HOTWORDS` bleiben bewusste vollständige Overrides.
+`AUDIOREC_HOTWORDS` bleibt ein bewusster experimenteller Override. In der GUI
+muss eine gespeicherte Liste zusätzlich ausdrücklich aktiviert werden.
 
 Die wichtigsten technischen Begriffe werden im [gestuften Lernplan für lokale
 KI und den digitalen Check](docs/LERNPLAN_LOKALE_KI_UND_DIGITALER_CHECK.md)
@@ -146,7 +150,8 @@ Die GUI bietet drei Hauptaktionen:
 python transcribe.py input --metadata-header --merge-transcripts --move-processed --prompt "Fachbegriffe: Diktiergerät, Claude, Claude Code, KI"
 ```
 
-Mit zusätzlichen lokalen Hotwords:
+Mit ausdrücklich aktivierten lokalen Hotwords (experimentell; bei langen
+Aufnahmen besteht das Risiko von Textauslassungen):
 
 ```bash
 python transcribe.py input --provider local --model medium \

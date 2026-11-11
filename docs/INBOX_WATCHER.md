@@ -198,9 +198,11 @@ auch nach dem Benachrichtigungsfenster fest. Weitere Hinweise werden für sechs
 Stunden unterdrückt. Nach dem nächsten erfolgreichen Drive-Zugriff entfernt die
 Pipeline den Marker automatisch.
 
-Für die lokale Erkennung können Kontext-Prompt und Hotwords ebenfalls dort
-gepflegt werden. Hotwords beeinflussen die Erkennung, führen aber noch keine
-nachträgliche Textersetzung aus:
+Für die lokale Erkennung kann dort ein Kontext-Prompt gepflegt werden. Hotwords
+bleiben als experimenteller Opt-in verfügbar, werden aber nicht mehr automatisch
+aus dem Glossar aktiviert: Ein reproduzierbarer Vergleich mit einer langen
+Aufnahme zeigte massive Textauslassungen. `AUDIOREC_HOTWORDS` daher nur für
+bewusst kontrollierte Versuche setzen:
 
 ```text
 AUDIOREC_PROMPT=Fachbegriffe: Diktiergerät, Claude, Claude Code, KI

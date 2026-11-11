@@ -14,7 +14,7 @@ from analyze_segment_quality import find_suspicious_segments
 from inbox_watcher import (classify, ensure_pipeline_state, load_listing, open_state,
                            setup_logging, stage_ready_file)
 from publish_transcripts import ensure_publish_state, pending_publications, publish_one
-from project_glossary import glossary_hotwords, glossary_prompt
+from project_glossary import glossary_prompt
 from quality_reviews import (
     ensure_quality_state,
     sync_quality_candidates,
@@ -32,9 +32,10 @@ from segment_metadata import SegmentMetadataError, load_segment_metadata
 PROMPT = os.environ.get("AUDIOREC_PROMPT")
 if PROMPT is None:
     PROMPT = glossary_prompt()
-HOTWORDS = os.environ.get("AUDIOREC_HOTWORDS")
-if HOTWORDS is None:
-    HOTWORDS = ", ".join(glossary_hotwords())
+# Hotwords bleiben als ausdruecklicher Versuchshebel verfuegbar, werden aber
+# nicht mehr automatisch aus dem Glossar aktiviert. Ein reproduzierbarer
+# Vergleich mit langen Aufnahmen zeigte sonst massive Textauslassungen.
+HOTWORDS = os.environ.get("AUDIOREC_HOTWORDS", "")
 SOURCE = os.environ.get("AUDIOREC_SOURCE", "gdrive:AudioRec Recordings")
 STATE_DIR = Path(".inbox-watcher")
 STAGING_DIR = Path("staging/inbox")
