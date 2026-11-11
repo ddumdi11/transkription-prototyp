@@ -476,6 +476,7 @@ def local_decoder_options(args: argparse.Namespace) -> dict:
 
 
 def main():
+    """CLI-Einstieg: Argumente prüfen, Provider wählen und Audiodateien transkribieren."""
     parser = argparse.ArgumentParser(
         description=(
             "Voll-Transkription von Diktiergerät-Audiodateien mit optionalen "

@@ -87,7 +87,9 @@ def setting_or_env(settings: dict, key: str, env_key: str, fallback) -> str:
 
 
 class TranscriptionGUI:
+    """Tkinter-Oberfläche für Zusammenfügen, Transkription und Workflow."""
     def __init__(self, root: tk.Tk):
+        """Widgets aufbauen und gespeicherte Einstellungen laden."""
         self.root = root
         self.root.title("Transkriptions-Prototyp")
         # Fenstergröße wird nach dem Aufbau der Widgets gesetzt
