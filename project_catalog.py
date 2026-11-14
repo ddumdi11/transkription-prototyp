@@ -12,7 +12,7 @@ import re
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
 EXPORT_TYPE = "z_system_project_catalog"
 PROJECT_ID_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 CATALOG_HASH_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
@@ -21,7 +21,7 @@ PROJECT_STATUSES = {"active", "paused", "archived", "candidate"}
 
 
 class ProjectCatalogError(ValueError):
-    """The Atlas catalog violates the agreed v1 contract."""
+    """The Atlas catalog violates a supported versioned contract."""
 
 
 def _object(value: Any, path: str) -> dict[str, Any]:
@@ -99,9 +99,10 @@ def validate_project_catalog(payload: Any) -> dict[str, Any]:
 
     if type(catalog["schema_version"]) is not int:
         raise ProjectCatalogError("schema_version muss eine Ganzzahl sein")
-    if catalog["schema_version"] != SCHEMA_VERSION:
+    schema_version = catalog["schema_version"]
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise ProjectCatalogError(
-            f"Nicht unterstützte schema_version: {catalog['schema_version']!r}"
+            f"Nicht unterstützte schema_version: {schema_version!r}"
         )
     if catalog["export_type"] != EXPORT_TYPE:
         raise ProjectCatalogError(
@@ -129,10 +130,13 @@ def validate_project_catalog(payload: Any) -> dict[str, Any]:
     for index, raw_project in enumerate(projects):
         path = f"projects[{index}]"
         project = _object(raw_project, path)
-        _exact_keys(project, {
+        project_keys = {
             "project_id", "name", "status", "category", "aliases",
             "relations", "routing",
-        }, path)
+        }
+        if schema_version == 2:
+            project_keys.add("concept_relations")
+        _exact_keys(project, project_keys, path)
 
         project_id = _text(project["project_id"], f"{path}.project_id")
         if not PROJECT_ID_PATTERN.fullmatch(project_id):
@@ -150,7 +154,7 @@ def validate_project_catalog(payload: Any) -> dict[str, Any]:
         category = project["category"]
         if category is not None:
             _text(category, f"{path}.category")
-        if status != "candidate" and category is None:
+        if schema_version == 1 and status != "candidate" and category is None:
             raise ProjectCatalogError(
                 f"{path}.category darf nur bei candidate null sein"
             )
@@ -175,6 +179,37 @@ def validate_project_catalog(payload: Any) -> dict[str, Any]:
                 )
             seen_relations.add(relation_key)
             relation_targets.append((relation_path, target_id))
+
+        if schema_version == 2:
+            concept_relations = project["concept_relations"]
+            concept_path = f"{path}.concept_relations"
+            if not isinstance(concept_relations, list):
+                raise ProjectCatalogError(f"{concept_path} muss eine Liste sein")
+            concept_keys: list[tuple[str, str]] = []
+            for relation_index, raw_relation in enumerate(concept_relations):
+                relation_path = f"{concept_path}[{relation_index}]"
+                relation = _object(raw_relation, relation_path)
+                _exact_keys(relation, {"relation", "concept_id"}, relation_path)
+                relation_name = _text(
+                    relation["relation"], f"{relation_path}.relation"
+                )
+                concept_id = _text(
+                    relation["concept_id"], f"{relation_path}.concept_id"
+                )
+                if not PROJECT_ID_PATTERN.fullmatch(concept_id):
+                    raise ProjectCatalogError(
+                        f"{relation_path}.concept_id ist kein stabiler Begriff-Slug: "
+                        f"{concept_id!r}"
+                    )
+                concept_keys.append((relation_name, concept_id))
+            if len(concept_keys) != len(set(concept_keys)):
+                raise ProjectCatalogError(
+                    f"{concept_path} enthält doppelte Beziehungen"
+                )
+            if concept_keys != sorted(concept_keys):
+                raise ProjectCatalogError(
+                    f"{concept_path} ist nicht nach (relation, concept_id) sortiert"
+                )
 
         routing = _object(project["routing"], f"{path}.routing")
         _exact_keys(routing, {"enabled", "terms", "exact_terms"}, f"{path}.routing")
@@ -233,7 +268,7 @@ def load_project_catalog(path: Path) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Atlas-Projektkatalog v1 ausschließlich lesend validieren"
+        description="Atlas-Projektkatalog v1 oder v2 ausschließlich lesend validieren"
     )
     parser.add_argument("catalog", type=Path, help="Lokale JSON-Katalogdatei")
     return parser.parse_args()

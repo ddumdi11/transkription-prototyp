@@ -433,22 +433,33 @@ jeder späteren Routing- oder Exportverwendung wird eine lokale Kopie
 ausschließlich lesend validiert:
 
 ```bash
-.venv/bin/python project_catalog.py /pfad/zu/atlas-project-catalog.v1.json
+.venv/bin/python project_catalog.py /pfad/zu/atlas-project-catalog.v2.json
 ```
 
-Der Validator prüft neben der Struktur unter anderem stabile slugförmige
-Projekt-IDs, Status und Kategorien, eindeutige Begriffe, gültige Beziehungen,
-`exact_terms` als Teilmenge von `terms` sowie den kanonischen `catalog_hash`.
-Das maschinenlesbare Vertragsschema liegt unter
-`schemas/atlas-project-catalog.schema.v1.json`. Der Befehl verändert weder den
+Der Validator unterstützt Katalog v1 weiterhin unverändert und prüft bei v2
+zusätzlich das Pflichtfeld `concept_relations`: Jeder direkte Ontologiebezug
+enthält ausschließlich `relation` und eine stabile `concept_id`; doppelte oder
+nicht deterministisch nach `(relation, concept_id)` sortierte Einträge werden
+abgelehnt. `category` enthält weiterhin das lesbare Dachbereich-Label und darf
+in v2 unabhängig vom Projektstatus `null` sein, wenn kein oder mehr als ein
+Dachbereich bestätigt ist. `relations` bleibt Projekt-zu-Projekt vorbehalten.
+Stabile `concept_id`-Werte bleiben auch bei später als `deprecated`
+gekennzeichneten Begriffen referenzierbar; deren Status gehört in den separaten
+Ontologie-Export und nicht in den Projektkatalog. Die
+maschinenlesbaren Vertragsschemata liegen unter
+`schemas/atlas-project-catalog.schema.v1.json` und
+`schemas/atlas-project-catalog.schema.v2.json`. Der Befehl verändert weder den
 Katalog noch Pipeline-Status oder Drive.
 
-Der produktive Katalog liegt im Drive-synchronisierten Übergabekanal unter
-`AudioRec Project Outbox/catalog/atlas-project-catalog.v1.json`. Diese Outbox
-ist bereits die Übergabe: Atlas schreibt eine geänderte Fassung dorthin und
-meldet den neuen `catalog_hash`. Die Pipeline-Werkzeuge verwenden derzeit eine
-lokal synchronisierte oder ausdrücklich abgerufene Kopie dieser Datei, die mit
-`--catalog` übergeben und vor der Verwendung verifiziert wird. Ein automatischer
+Die produktiven Katalogversionen liegen getrennt benannt im
+Drive-synchronisierten Übergabekanal unter
+`AudioRec Project Outbox/catalog/atlas-project-catalog.v1.json` und
+`AudioRec Project Outbox/catalog/atlas-project-catalog.v2.json`. Die v1-Datei
+bleibt für ältere Leser unverändert liegen. Diese Outbox ist bereits die
+Übergabe: Atlas schreibt eine geänderte Fassung dorthin und meldet den neuen
+`catalog_hash`. Die Pipeline-Werkzeuge verwenden derzeit eine lokal
+synchronisierte oder ausdrücklich abgerufene Kopie, die mit `--catalog`
+übergeben und vor der Verwendung verifiziert wird. Ein automatischer
 rclone-Abruf durch die Pipeline ist noch nicht implementiert; eine davon
 abweichende manuelle Übergabedatei ist jedoch nicht vorgesehen.
 
