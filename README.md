@@ -560,12 +560,16 @@ Ein aus Atlas exportierter Projektkatalog kann vor seiner späteren Verwendung
 schreibgeschützt gegen den versionierten Schnittstellenvertrag geprüft werden:
 
 ```bash
-.venv/bin/python project_catalog.py atlas-project-catalog.v1.json
+.venv/bin/python project_catalog.py atlas-project-catalog.v2.json
 ```
 
-Der Validator kontrolliert Struktur, stabile Vorhaben-Slugs, Beziehungen,
-Routingbegriffe und den kanonischen Kataloghash, schreibt aber keine Datei und
-ändert weder Pipeline-Status noch Drive.
+Der Validator akzeptiert den unveränderten v1-Vertrag und den v2-Vertrag mit
+direkten, stabilen Ontologiebezügen in `concept_relations`. Er kontrolliert
+Struktur, stabile Vorhaben- und Begriff-Slugs, Beziehungen, Routingbegriffe,
+die deterministische Reihenfolge der Ontologiebezüge und den kanonischen
+Kataloghash, schreibt aber keine Datei und ändert weder Pipeline-Status noch
+Drive. Die v1- und v2-Dateien bleiben getrennt benannt, damit ein reiner
+v1-Leser nicht versehentlich einen v2-Katalog erhält.
 
 Ein ausdrücklich bestätigtes Sitzungsmanifest kann anschließend zunächst als
 lokales, verifiziertes Atlas-Lieferpaket geplant werden:
@@ -573,7 +577,7 @@ lokales, verifiziertes Atlas-Lieferpaket geplant werden:
 ```bash
 .venv/bin/python export_transcript_delivery.py \
   --routing-manifest staging/routing-manifests/routing__SESSION_ID.json \
-  --catalog /pfad/zu/atlas-project-catalog.v1.json
+  --catalog /pfad/zu/atlas-project-catalog.v2.json
 ```
 
 Erst `--confirm` erzeugt das Paket atomar unter

@@ -58,6 +58,87 @@ class ProjectCatalogTest(unittest.TestCase):
             "projects": projects,
         }
 
+    @staticmethod
+    def v2_vector_catalog():
+        """Return the projects from Atlas' shared catalog-hash v2 vector."""
+        projects = [
+            {
+                "project_id": "v2-mehrere-daecher",
+                "name": "Mehrere Dächer",
+                "status": "active",
+                "category": "Persönliche Testbereiche",
+                "aliases": [],
+                "relations": [],
+                "concept_relations": [
+                    {"relation": "hatDach", "concept_id": "test-bereich-b"},
+                    {"relation": "hatDach", "concept_id": "test-dach-a"},
+                    {"relation": "hatDach", "concept_id": "test-dach-z"},
+                ],
+                "routing": {
+                    "enabled": True,
+                    "terms": ["Mehrere Dächer", "MD"],
+                    "exact_terms": ["MD"],
+                },
+            },
+            {
+                "project_id": "v2-nur-dachbereich",
+                "name": "Nur Dachbereich",
+                "status": "active",
+                "category": "Testbereich A",
+                "aliases": ["Übungsprojekt 🌱"],
+                "relations": [],
+                "concept_relations": [
+                    {"relation": "hatDach", "concept_id": "test-bereich-a"}
+                ],
+                "routing": {
+                    "enabled": True,
+                    "terms": ["Nur Dachbereich", "NDB"],
+                    "exact_terms": ["NDB"],
+                },
+            },
+            {
+                "project_id": "v2-leer",
+                "name": "Leere Liste",
+                "status": "candidate",
+                "category": None,
+                "aliases": [],
+                "relations": [],
+                "concept_relations": [],
+                "routing": {
+                    "enabled": True,
+                    "terms": ["Leere Liste"],
+                    "exact_terms": [],
+                },
+            },
+            {
+                "project_id": "v2-dachbereich-und-dach",
+                "name": "Dachbereich und Dach",
+                "status": "active",
+                "category": "Testbereich A",
+                "aliases": [],
+                "relations": [],
+                "concept_relations": [
+                    {"relation": "hatDach", "concept_id": "test-bereich-a"},
+                    {"relation": "hatDach", "concept_id": "test-dach-a"},
+                ],
+                "routing": {
+                    "enabled": True,
+                    "terms": ["Dachbereich und Dach", "DUD"],
+                    "exact_terms": ["DUD"],
+                },
+            },
+        ]
+        return {
+            "schema_version": 2,
+            "export_type": "z_system_project_catalog",
+            "catalog_id": "z-system-v2-test",
+            "catalog_revision": "2026-11-14T00:00:00Z",
+            "exported_at": "2026-11-14T00:00:00Z",
+            "source": {"application": "Atlas", "instance_id": "atlas-test"},
+            "catalog_hash": project_catalog_hash(projects),
+            "projects": projects,
+        }
+
     def test_valid_catalog_and_file_load_are_read_only(self):
         catalog = self.catalog()
         with tempfile.TemporaryDirectory() as directory:
@@ -75,6 +156,70 @@ class ProjectCatalogTest(unittest.TestCase):
         catalog["projects"][0]["name"] = "Manipuliert"
         with self.assertRaisesRegex(ProjectCatalogError, "catalog_hash stimmt nicht"):
             validate_project_catalog(catalog)
+
+    def test_accepts_atlas_v2_hash_vector(self):
+        catalog = self.v2_vector_catalog()
+
+        self.assertEqual(
+            catalog["catalog_hash"],
+            "sha256:4e93f634daab61aa7ac31581413e66add24938d3b7d2b98c10c858464bfa94dc",
+        )
+        self.assertEqual(validate_project_catalog(catalog), catalog)
+
+        reversed_relations = copy.deepcopy(catalog["projects"])
+        for project in reversed_relations:
+            project["concept_relations"].reverse()
+        self.assertEqual(
+            project_catalog_hash(reversed_relations),
+            "sha256:95f41c6752da3648cf904a83ac6e2c432254bce704a3bb10b841fa9c5eba65b6",
+        )
+
+    def test_v1_rejects_and_v2_requires_concept_relations(self):
+        v1 = self.catalog()
+        v1["projects"][0]["concept_relations"] = []
+        v1["catalog_hash"] = project_catalog_hash(v1["projects"])
+        with self.assertRaisesRegex(ProjectCatalogError, "unbekannte Felder"):
+            validate_project_catalog(v1)
+
+        v2 = self.v2_vector_catalog()
+        del v2["projects"][0]["concept_relations"]
+        v2["catalog_hash"] = project_catalog_hash(v2["projects"])
+        with self.assertRaisesRegex(ProjectCatalogError, "fehlende Felder"):
+            validate_project_catalog(v2)
+
+    def test_v2_rejects_unsorted_and_duplicate_concept_relations(self):
+        unsorted = self.v2_vector_catalog()
+        unsorted["projects"][3]["concept_relations"].reverse()
+        unsorted["catalog_hash"] = project_catalog_hash(unsorted["projects"])
+        with self.assertRaisesRegex(ProjectCatalogError, "nicht nach"):
+            validate_project_catalog(unsorted)
+
+        duplicate = self.v2_vector_catalog()
+        relation = duplicate["projects"][1]["concept_relations"][0]
+        duplicate["projects"][1]["concept_relations"].append(copy.deepcopy(relation))
+        duplicate["catalog_hash"] = project_catalog_hash(duplicate["projects"])
+        with self.assertRaisesRegex(ProjectCatalogError, "doppelte Beziehungen"):
+            validate_project_catalog(duplicate)
+
+    def test_v2_rejects_embedded_label_and_invalid_concept_id(self):
+        label = self.v2_vector_catalog()
+        label["projects"][1]["concept_relations"][0]["pref_label"] = "Testbereich A"
+        label["catalog_hash"] = project_catalog_hash(label["projects"])
+        with self.assertRaisesRegex(ProjectCatalogError, "unbekannte Felder"):
+            validate_project_catalog(label)
+
+        invalid_id = self.v2_vector_catalog()
+        invalid_id["projects"][1]["concept_relations"][0]["concept_id"] = "Kein Slug"
+        invalid_id["catalog_hash"] = project_catalog_hash(invalid_id["projects"])
+        with self.assertRaisesRegex(ProjectCatalogError, "kein stabiler Begriff-Slug"):
+            validate_project_catalog(invalid_id)
+
+    def test_v2_allows_null_category_for_non_candidate(self):
+        catalog = self.v2_vector_catalog()
+        catalog["projects"][0]["category"] = None
+        catalog["catalog_hash"] = project_catalog_hash(catalog["projects"])
+
+        self.assertEqual(validate_project_catalog(catalog), catalog)
 
     def test_rejects_non_slug_and_duplicate_project_ids(self):
         non_slug = self.catalog()
