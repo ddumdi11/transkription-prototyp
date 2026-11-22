@@ -11,6 +11,7 @@ from plan_transcript_repairs import build_repair_plan
 from publish_transcripts import prepare_publish_state
 from quality_reviews import (
     candidate_hash,
+    curate_quality_review,
     decide_quality_review,
     ensure_quality_state,
     sync_quality_candidates,
@@ -61,6 +62,21 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
         )
         item = candidate()
         transcript_hash = transcript_sha256_for_drive(self.db, "one")
+        transcript.with_suffix(".segments.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "source_id": "one",
+                "transcript_sha256": transcript_hash,
+                "segments": [{
+                    "id": item["id"],
+                    "start": item["start"],
+                    "end": item["end"],
+                    "raw_text": item["raw_text"],
+                    "text": item["text"],
+                }],
+            }),
+            encoding="utf-8",
+        )
         fingerprint = candidate_hash(item, transcript_hash)
         sync_quality_candidates(
             self.db,
@@ -169,14 +185,115 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
         self.assertEqual(code, 4)
         self.assertIn("veraltet", stderr)
 
-    def test_without_check_does_not_create_preview(self):
+    def test_generation_writes_preview_and_second_run_is_noop(self):
+        transcript = self.add_review(["BOUNDARY_ERROR"])
+        plan_path, plan = self.freeze_plan()
+        output = self.root / "previews"
+
+        code, stdout, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            str(output),
+            "--json",
+        )
+
+        self.assertEqual(code, 0, stderr)
+        result = json.loads(stdout)
+        self.assertTrue(result["preview_written"])
+        target = Path(result["output_path"])
+        preview = target / "recordings" / "one" / "preview.md"
+        self.assertEqual(preview.read_bytes(), transcript.read_bytes())
+
+        code, stdout, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            str(output),
+            "--json",
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertFalse(json.loads(stdout)["preview_written"])
+
+    def test_curated_replacement_changes_preview_not_canonical_transcript(self):
+        transcript = self.add_review(["WORD_ERROR"])
+        row = self.db.execute(
+            "SELECT * FROM quality_reviews WHERE drive_id='one' AND is_current=1"
+        ).fetchone()
+        transcript_hash = transcript_sha256_for_drive(self.db, "one")
+        curate_quality_review(
+            self.db,
+            "one",
+            "segment-000001",
+            row["candidate_hash"],
+            "REPLACE",
+            transcript_sha256=transcript_hash,
+            confirmed_text="Ein korrigierter Text.",
+            now=1040,
+        )
+        plan_path, plan = self.freeze_plan()
+        original = transcript.read_bytes()
+
+        code, stdout, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            str(self.root / "previews"),
+            "--json",
+        )
+
+        self.assertEqual(code, 0, stderr)
+        target = Path(json.loads(stdout)["output_path"])
+        preview = target / "recordings" / "one" / "preview.md"
+        self.assertIn("Ein korrigierter Text.", preview.read_text(encoding="utf-8"))
+        self.assertEqual(transcript.read_bytes(), original)
+
+    def test_curated_hallucination_deletes_only_preview_text(self):
+        transcript = self.add_review(["HALLUCINATION"])
+        row = self.db.execute(
+            "SELECT * FROM quality_reviews WHERE drive_id='one' AND is_current=1"
+        ).fetchone()
+        transcript_hash = transcript_sha256_for_drive(self.db, "one")
+        curate_quality_review(
+            self.db,
+            "one",
+            "segment-000001",
+            row["candidate_hash"],
+            "DELETE",
+            transcript_sha256=transcript_hash,
+            now=1040,
+        )
+        plan_path, plan = self.freeze_plan()
+        original = transcript.read_bytes()
+
+        code, stdout, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            str(self.root / "previews"),
+            "--json",
+        )
+
+        self.assertEqual(code, 0, stderr)
+        target = Path(json.loads(stdout)["output_path"])
+        preview = target / "recordings" / "one" / "preview.md"
+        self.assertNotIn("Ein auffälliger Text.", preview.read_text(encoding="utf-8"))
+        self.assertEqual(transcript.read_bytes(), original)
+
+    def test_check_rejects_output_inside_canonical_transcripts(self):
         self.add_review(["BOUNDARY_ERROR"])
         plan_path, plan = self.freeze_plan()
 
-        code, _, stderr = self.invoke(plan_path, plan["plan_sha256"])
+        code, _, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            "staging/transcripts",
+            "--check",
+        )
 
-        self.assertEqual(code, 2)
-        self.assertIn("--check verwenden", stderr)
+        self.assertEqual(code, 6)
+        self.assertIn("Ausgabeziel", stderr)
 
     def test_non_string_gate_values_raise_plan_format_error(self):
         self.add_review(["BOUNDARY_ERROR"])
