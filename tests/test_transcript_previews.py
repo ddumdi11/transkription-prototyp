@@ -52,10 +52,16 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
         self.db.close()
         self.temp.cleanup()
 
-    def add_review(self, issues: list[str], title: str = "# one") -> Path:
+    def add_review(
+        self,
+        issues: list[str],
+        title: str = "# one",
+        line_ending: str = "\n",
+    ) -> Path:
         transcript = self.root / "one.md"
         transcript.write_text(
-            f"{title}\n\nEin auffälliger Text.\n", encoding="utf-8"
+            line_ending.join((title, "", "Ein auffälliger Text.", "")),
+            encoding="utf-8",
         )
         self.db.execute(
             """INSERT INTO transcription_jobs
@@ -293,6 +299,23 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
         transcript = self.add_review(
             ["BOUNDARY_ERROR"], title="# Ein auffälliger Text."
         )
+        plan_path, plan = self.freeze_plan()
+
+        code, stdout, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            str(self.root / "previews"),
+            "--json",
+        )
+
+        self.assertEqual(code, 0, stderr)
+        target = Path(json.loads(stdout)["output_path"])
+        preview = target / "recordings" / "one" / "preview.md"
+        self.assertEqual(preview.read_bytes(), transcript.read_bytes())
+
+    def test_crlf_header_separator_preserves_original_transcript_bytes(self):
+        transcript = self.add_review(["BOUNDARY_ERROR"], line_ending="\r\n")
         plan_path, plan = self.freeze_plan()
 
         code, stdout, stderr = self.invoke(

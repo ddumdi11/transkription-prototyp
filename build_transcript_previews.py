@@ -242,10 +242,10 @@ def _align_segments(
         raise ReconstructionError("Segmentdatei enthält keine Segmente")
     cursor = 0
     if transcript.startswith("# "):
-        separator = transcript.find("\n\n")
-        if separator < 0:
+        separator = re.search(r"(?:\r\n|\n){2}", transcript)
+        if separator is None:
             raise ReconstructionError("Transkriptkopf besitzt keinen Textkörper")
-        cursor = separator + 2
+        cursor = separator.end()
     positions: dict[str, tuple[int, int]] = {}
     for segment in segments:
         segment_text = segment["text"]
