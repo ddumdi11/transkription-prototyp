@@ -240,9 +240,14 @@ def _align_segments(
     """Align every segment in order and reject non-whitespace body gaps."""
     if not segments:
         raise ReconstructionError("Segmentdatei enthält keine Segmente")
-    positions: dict[str, tuple[int, int]] = {}
     cursor = 0
-    for index, segment in enumerate(segments):
+    if transcript.startswith("# "):
+        separator = transcript.find("\n\n")
+        if separator < 0:
+            raise ReconstructionError("Transkriptkopf besitzt keinen Textkörper")
+        cursor = separator + 2
+    positions: dict[str, tuple[int, int]] = {}
+    for segment in segments:
         segment_text = segment["text"]
         if not segment_text:
             raise ReconstructionError(
@@ -253,7 +258,7 @@ def _align_segments(
             raise ReconstructionError(
                 f"Segmenttext nicht im Transkript gefunden: {segment['id']}"
             )
-        if index and transcript[cursor:start].strip():
+        if transcript[cursor:start].strip():
             raise ReconstructionError(
                 f"Nicht rekonstruierbarer Text vor {segment['id']}"
             )
@@ -265,6 +270,30 @@ def _align_segments(
             "Nicht rekonstruierbarer Text nach dem letzten Segment"
         )
     return positions
+
+
+def _deletion_bounds(
+    transcript: str,
+    start: int,
+    end: int,
+    segment_spans: list[tuple[int, int]],
+    claimed_gaps: set[int],
+) -> tuple[int, int]:
+    """Include at most one unowned inter-segment space in a deletion."""
+    candidates = ((end, start, end + 1), (start - 1, start - 1, end))
+    for position, expanded_start, expanded_end in candidates:
+        if (
+            0 <= position < len(transcript)
+            and transcript[position] == " "
+            and position not in claimed_gaps
+            and not any(
+                span_start <= position < span_end
+                for span_start, span_end in segment_spans
+            )
+        ):
+            claimed_gaps.add(position)
+            return expanded_start, expanded_end
+    return start, end
 
 
 def _candidate_from_segment(
@@ -436,19 +465,34 @@ def _apply_recording(
                 f"{current['segment_id']}"
             )
 
+    segment_spans = list(positions.values())
+    claimed_gaps: set[int] = set()
+    for operation in ordered:
+        edit_start = operation["start"]
+        edit_end = operation["end"]
+        if operation["action"] == "CURATED_DELETION_AVAILABLE":
+            edit_start, edit_end = _deletion_bounds(
+                transcript,
+                edit_start,
+                edit_end,
+                segment_spans,
+                claimed_gaps,
+            )
+        operation["edit_start"] = edit_start
+        operation["edit_end"] = edit_end
+
     preview = transcript
     for operation in reversed(ordered):
-        start = operation["start"]
-        end = operation["end"]
-        if operation["action"] == "CURATED_DELETION_AVAILABLE":
-            if preview[end:end + 1] == " ":
-                end += 1
-            elif start and preview[start - 1:start] == " ":
-                start -= 1
+        start = operation["edit_start"]
+        end = operation["edit_end"]
         preview = preview[:start] + operation["new_text"] + preview[end:]
 
     public_changes = [
-        {key: value for key, value in operation.items() if key not in {"start", "end"}}
+        {
+            key: value
+            for key, value in operation.items()
+            if key not in {"start", "end", "edit_start", "edit_end"}
+        }
         for operation in ordered
     ]
     manifest = {
@@ -597,7 +641,16 @@ def install_preview_files(target: Path, files: dict[Path, bytes]) -> bool:
             raise OutputSafetyError(
                 f"Vorschauergebnis entstand gleichzeitig: {target}"
             )
-        temporary.replace(target)
+        try:
+            temporary.replace(target)
+        except OSError as exc:
+            if target.exists():
+                if _existing_tree_matches(target, files):
+                    return False
+                raise OutputSafetyError(
+                    f"Vorschauergebnis entstand gleichzeitig: {target}"
+                ) from exc
+            raise
         return True
     finally:
         if temporary.exists():

@@ -4,8 +4,15 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
-from build_transcript_previews import PlanFormatError, main, validate_plan_gate
+from build_transcript_previews import (
+    OutputSafetyError,
+    PlanFormatError,
+    install_preview_files,
+    main,
+    validate_plan_gate,
+)
 from inbox_watcher import open_state
 from plan_transcript_repairs import build_repair_plan
 from publish_transcripts import prepare_publish_state
@@ -45,9 +52,11 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
         self.db.close()
         self.temp.cleanup()
 
-    def add_review(self, issues: list[str]) -> Path:
+    def add_review(self, issues: list[str], title: str = "# one") -> Path:
         transcript = self.root / "one.md"
-        transcript.write_text("# one\n\nEin auffälliger Text.\n", encoding="utf-8")
+        transcript.write_text(
+            f"{title}\n\nEin auffälliger Text.\n", encoding="utf-8"
+        )
         self.db.execute(
             """INSERT INTO transcription_jobs
                (drive_id,status,attempts,local_audio,transcript_path,last_error,updated_at)
@@ -279,6 +288,137 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
         preview = target / "recordings" / "one" / "preview.md"
         self.assertNotIn("Ein auffälliger Text.", preview.read_text(encoding="utf-8"))
         self.assertEqual(transcript.read_bytes(), original)
+
+    def test_title_containing_first_segment_text_is_preserved(self):
+        transcript = self.add_review(
+            ["BOUNDARY_ERROR"], title="# Ein auffälliger Text."
+        )
+        plan_path, plan = self.freeze_plan()
+
+        code, stdout, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            str(self.root / "previews"),
+            "--json",
+        )
+
+        self.assertEqual(code, 0, stderr)
+        target = Path(json.loads(stdout)["output_path"])
+        preview = target / "recordings" / "one" / "preview.md"
+        self.assertEqual(preview.read_bytes(), transcript.read_bytes())
+
+    def test_deletion_does_not_consume_space_inside_next_segment(self):
+        transcript = self.root / "one.md"
+        transcript.write_text("# one\n\nLöschen. Bewahren.\n", encoding="utf-8")
+        self.db.execute(
+            """INSERT INTO transcription_jobs
+               (drive_id,status,attempts,local_audio,transcript_path,last_error,updated_at)
+               VALUES ('one', 'DONE', 1, 'audio.wav', ?, NULL, 1000)""",
+            (str(transcript),),
+        )
+        self.db.execute(
+            """INSERT INTO published_transcripts
+               (drive_id,local_path,local_hash,size,remote_path,remote_id,published_at)
+               VALUES ('one', ?, 'hash', 10, 'remote/one.md', 'remote-one', 1010)""",
+            (str(transcript),),
+        )
+        item = {
+            "id": "segment-000001",
+            "start": 1.0,
+            "end": 1.2,
+            "raw_text": " Löschen.",
+            "text": "Löschen.",
+            "flags": ["implausible_text_density"],
+            "chars_per_second": 45.0,
+        }
+        transcript_hash = transcript_sha256_for_drive(self.db, "one")
+        transcript.with_suffix(".segments.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "source_id": "one",
+                "transcript_sha256": transcript_hash,
+                "segments": [
+                    {
+                        "id": item["id"],
+                        "start": item["start"],
+                        "end": item["end"],
+                        "raw_text": item["raw_text"],
+                        "text": item["text"],
+                    },
+                    {
+                        "id": "segment-000002",
+                        "start": 1.2,
+                        "end": 1.4,
+                        "raw_text": " Bewahren.",
+                        "text": " Bewahren.",
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+        fingerprint = candidate_hash(item, transcript_hash)
+        sync_quality_candidates(
+            self.db,
+            "one",
+            [item],
+            transcript_sha256=transcript_hash,
+            segment_transcript_sha256=transcript_hash,
+            now=1020,
+        )
+        decide_quality_review(
+            self.db,
+            "one",
+            item["id"],
+            fingerprint,
+            "CONFIRMED",
+            transcript_sha256=transcript_hash,
+            issue_types=["HALLUCINATION"],
+            now=1030,
+        )
+        curate_quality_review(
+            self.db,
+            "one",
+            item["id"],
+            fingerprint,
+            "DELETE",
+            transcript_sha256=transcript_hash,
+            now=1040,
+        )
+        plan_path, plan = self.freeze_plan()
+
+        code, stdout, stderr = self.invoke(
+            plan_path,
+            plan["plan_sha256"],
+            "--output-dir",
+            str(self.root / "previews"),
+            "--json",
+        )
+
+        self.assertEqual(code, 0, stderr)
+        target = Path(json.loads(stdout)["output_path"])
+        preview = target / "recordings" / "one" / "preview.md"
+        self.assertEqual(preview.read_text(encoding="utf-8"), "# one\n\n Bewahren.\n")
+
+    def test_install_race_accepts_identical_tree_and_rejects_conflict(self):
+        files = {Path("run.json"): b"same\n"}
+
+        for content, expected_error in ((b"same\n", False), (b"other\n", True)):
+            target = self.root / f"race-{expected_error}" / "result"
+
+            def race(_source, _destination, *, installed=content):
+                target.mkdir(parents=True)
+                (target / "run.json").write_bytes(installed)
+                raise OSError("simulated concurrent rename")
+
+            with self.subTest(conflict=expected_error), mock.patch.object(
+                Path, "replace", autospec=True, side_effect=race
+            ):
+                if expected_error:
+                    with self.assertRaises(OutputSafetyError):
+                        install_preview_files(target, files)
+                else:
+                    self.assertFalse(install_preview_files(target, files))
 
     def test_check_rejects_output_inside_canonical_transcripts(self):
         self.add_review(["BOUNDARY_ERROR"])

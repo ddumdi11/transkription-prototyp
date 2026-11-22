@@ -221,9 +221,11 @@ Plan aus der Datenbank neu aufgebaut. Enthält er auch nur einen HOLD-Fall
 (`CURATION_REQUIRED`, `MISMATCH` oder `UNVERIFIED`), bleibt der gesamte Lauf
 gesperrt. Die Prüfung bindet außerdem die gegenwärtigen Transkriptbytes, die
 Segmentdatei, den Kandidatenhash und die vollständige Rekonstruktion des
-Textkörpers ein. Ohne `--check` erzeugt das Werkzeug ausschließlich unter
+Textkörpers ein. Ohne `--check` erzeugt das Werkzeug standardmäßig unter
 `staging/repair-previews/<plan_sha256[:16]>/` eine nichtkanonische
-Vorschaufassung, einen verständlichen Diff und JSON-Manifeste. Kanonisches
+Vorschaufassung, einen verständlichen Diff und JSON-Manifeste. `--output-dir`
+wählt ein anderes, weiterhin gegen geschützte Betriebsorte geprüftes Ziel;
+auch dort entsteht dasselbe Unterverzeichnis aus dem Plan-Hash. Kanonisches
 Transkript, Segmentdatei, Datenbank und Drive werden nicht verändert. Ein
 identischer Wiederholungslauf schreibt nichts erneut; abweichende vorhandene
 Ausgaben werden abgelehnt.
