@@ -59,9 +59,10 @@ class TranscriptPreviewCheckTest(unittest.TestCase):
         line_ending: str = "\n",
     ) -> Path:
         transcript = self.root / "one.md"
-        transcript.write_text(
-            line_ending.join((title, "", "Ein auffälliger Text.", "")),
-            encoding="utf-8",
+        transcript.write_bytes(
+            line_ending.join(
+                (title, "", "Ein auffälliger Text.", "")
+            ).encode("utf-8")
         )
         self.db.execute(
             """INSERT INTO transcription_jobs
