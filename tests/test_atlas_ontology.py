@@ -274,6 +274,33 @@ class AtlasOntologyTest(unittest.TestCase):
                 with self.assertRaisesRegex(OntologyError, message):
                     validate_ontology(ontology)
 
+    def test_deep_acyclic_hierarchy_does_not_use_python_recursion(self):
+        """Validate a hierarchy deeper than Python's normal recursion limit."""
+        concepts = []
+        count = 1200
+        for index in range(count):
+            concept_id = f"deep-{index:04d}"
+            broader = [] if index == 0 else [f"deep-{index - 1:04d}"]
+            narrower = [] if index == count - 1 else [f"deep-{index + 1:04d}"]
+            concepts.append({
+                "concept_id": concept_id,
+                "type": "thema",
+                "pref_label": f"Tiefe Ebene {index}",
+                "alt_labels": [],
+                "hidden_labels": [],
+                "definition": None,
+                "status": "active",
+                "deprecated_at": None,
+                "broader": broader,
+                "narrower": narrower,
+                "related": [],
+            })
+        ontology = self.ontology()
+        ontology["concepts"] = concepts
+        self.refresh_hash(ontology)
+
+        self.assertEqual(validate_ontology(ontology), ontology)
+
     def test_rejects_duplicate_ids_unsorted_references_and_hash_mismatch(self):
         """Reject duplicate identities, unsorted edges, and stale hashes."""
         ontology = self.ontology()

@@ -190,22 +190,30 @@ def ontology_hash(concepts: list[dict[str, Any]]) -> str:
 
 
 def _check_cycle(concepts: dict[str, dict[str, Any]]) -> None:
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(concept_id: str) -> None:
-        if concept_id in visiting:
-            raise OntologyError(f"broader enthält einen Zyklus bei {concept_id!r}")
-        if concept_id in visited:
-            return
-        visiting.add(concept_id)
-        for broader_id in concepts[concept_id]["broader"]:
-            visit(broader_id)
-        visiting.remove(concept_id)
-        visited.add(concept_id)
-
-    for concept_id in concepts:
-        visit(concept_id)
+    active: set[str] = set()
+    completed: set[str] = set()
+    for root_id in concepts:
+        if root_id in completed:
+            continue
+        active.add(root_id)
+        stack = [(root_id, iter(concepts[root_id]["broader"]))]
+        while stack:
+            concept_id, broader_ids = stack[-1]
+            try:
+                broader_id = next(broader_ids)
+            except StopIteration:
+                stack.pop()
+                active.remove(concept_id)
+                completed.add(concept_id)
+                continue
+            if broader_id in active:
+                raise OntologyError(
+                    f"broader enthält einen Zyklus bei {broader_id!r}"
+                )
+            if broader_id in completed:
+                continue
+            active.add(broader_id)
+            stack.append((broader_id, iter(concepts[broader_id]["broader"])))
 
 
 def validate_ontology(payload: Any) -> dict[str, Any]:
