@@ -451,6 +451,26 @@ maschinenlesbaren Vertragsschemata liegen unter
 `schemas/atlas-project-catalog.schema.v2.json`. Der Befehl verändert weder den
 Katalog noch Pipeline-Status oder Drive.
 
+### Atlas-Ontologie prüfen
+
+Die Ontologie wird vor der Übernahme unabhängig vom Katalog validiert:
+
+```bash
+.venv/bin/python atlas_ontology.py \
+  /pfad/zu/atlas-ontology.v1.json \
+  --catalog /pfad/zu/atlas-project-catalog.v2.json
+```
+
+Geprüft werden das strikte JSON-Leseprofil, die geschlossene Typenmenge,
+Labels und Definitionen in NFC, Listen in Python-Codepoint-Reihenfolge,
+Hierarchie und Gegenrichtungen, symmetrische `related`-Beziehungen sowie der
+kanonische `ontology_hash`. Mit `--catalog` kommt die Vertragsregel hinzu, dass
+alle `concept_id`-Werte aus Katalog v2 in der Ontologie enthalten sein müssen.
+Die Produktivprüfung verlangt `z-ontologie` und `Atlas`/`atlas-primary`;
+`--allow-test-identifiers` ist ausschließlich für den künstlichen gemeinsamen
+Testvektor gedacht. Auch dieser Befehl schreibt nichts und greift nicht auf
+Drive zu.
+
 Die produktiven Katalogversionen liegen getrennt benannt im
 Drive-synchronisierten Übergabekanal unter
 `AudioRec Project Outbox/catalog/atlas-project-catalog.v1.json` und
