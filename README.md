@@ -583,6 +583,21 @@ Kataloghash, schreibt aber keine Datei und ändert weder Pipeline-Status noch
 Drive. Die v1- und v2-Dateien bleiben getrennt benannt, damit ein reiner
 v1-Leser nicht versehentlich einen v2-Katalog erhält.
 
+Der getrennte Ontologie-Export v1 wird ebenso ausschließlich lesend geprüft:
+
+```bash
+.venv/bin/python atlas_ontology.py atlas-ontology.v1.json \
+  --catalog atlas-project-catalog.v2.json
+```
+
+Der Validator kontrolliert das strikte JSON-Leseprofil, alle Kopf- und
+Begriffsfelder, NFC, Codepoint-Sortierung, Hierarchie, symmetrische Beziehungen
+und den kanonischen `ontology_hash`. Bei Übergabe eines Katalogs verlangt er
+zusätzlich, dass jede dort genannte `concept_id` in der Ontologie vorkommt.
+Standardmäßig gelten die festen Produktionskennungen `z-ontologie` und
+`Atlas`/`atlas-primary`; nur künstliche Testvektoren dürfen mit
+`--allow-test-identifiers` davon abweichen. Der Befehl verändert keine Datei.
+
 Ein ausdrücklich bestätigtes Sitzungsmanifest kann anschließend zunächst als
 lokales, verifiziertes Atlas-Lieferpaket geplant werden:
 
