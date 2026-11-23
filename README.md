@@ -434,13 +434,25 @@ eingefrorener Plan vollständig schreibfrei gegen den aktuellen Zustand prüfen:
   --plan /tmp/reparaturplan.json \
   --expect-plan-sha256 PLAN_SHA256 \
   --check --json
+
+.venv/bin/python build_transcript_previews.py \
+  --plan /tmp/reparaturplan.json \
+  --expect-plan-sha256 PLAN_SHA256 \
+  --output-dir staging/repair-previews --json
 ```
 
 `--check` akzeptiert nur einen unveränderten Schema-3-Plan, ausschließlich
 versionsgebundene `MATCHED`-Reviews und einen aktuellen Datenbankzustand, der
 denselben Plan reproduziert. Ein einziger `CURATION_REQUIRED`, `MISMATCH` oder
-`UNVERIFIED`-Eintrag sperrt den gesamten Lauf. Dieser erste Sicherheitsbaustein
-schreibt ausdrücklich noch keine Vorschaufassung.
+`UNVERIFIED`-Eintrag sperrt den gesamten Lauf. Zusätzlich werden die aktuellen
+Transkript- und Segmentdateien, Kandidatenhashes sowie die vollständige
+Rekonstruktion des Textkörpers geprüft. Mit `--check` bleibt der Lauf
+schreibfrei. Ohne `--check` entsteht unter
+`staging/repair-previews/<plan_sha256[:16]>/` eine nichtkanonische Vorschau mit
+`preview.md`, verständlichem `diff.md`, `changes.json` und `run.json`. Das
+kanonische Transkript, die Segmentdatei, die Datenbank und Drive bleiben
+unverändert. Ein identischer Wiederholungslauf ist ein No-op; ein abweichendes
+bereits vorhandenes Ergebnis wird abgelehnt.
 
 `--curate-delete` ist eine ausdrückliche Löschentscheidung für eine bestätigte
 Halluzination und wird im Plan als `CURATED_DELETION_AVAILABLE` geführt. Eine
