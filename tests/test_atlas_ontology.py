@@ -295,6 +295,7 @@ class AtlasOntologyTest(unittest.TestCase):
                 "narrower": narrower,
                 "related": [],
             })
+        concepts.reverse()
         ontology = self.ontology()
         ontology["concepts"] = concepts
         self.refresh_hash(ontology)
