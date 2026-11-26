@@ -2,7 +2,7 @@
 """Read-only check for longer repeated word sequences in transcripts.
 
 Complements ``eval/loop_check.py``: that tool finds *immediate* loops
-("a b c a b c a b c"). Decoder errors seen in long recordings (#977) look
+("a b c a b c a b c"). Decoder errors seen in long recordings can look
 different: a sentence or half-sentence reappears a few dozen words later,
 sometimes slightly re-phrased around it. Those are found here via word
 n-grams that occur again at a distance.

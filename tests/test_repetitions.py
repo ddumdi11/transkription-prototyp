@@ -20,7 +20,7 @@ def filler(prefix: str, count: int = 20) -> str:
 
 
 FILLER, FILLER_B, FILLER_C = filler("a"), filler("b"), filler("c")
-PHRASE = "diesen Schritt haben wir versäumt oder ich habe auch versäumt"  # 10 Wörter
+PHRASE = "dieser Verarbeitungsschritt wurde versehentlich ausgelassen und später sauber erneut ausgeführt"  # 10 Wörter
 
 
 def words(text: str) -> list[str]:
@@ -48,17 +48,17 @@ class FindRepetitionsTest(unittest.TestCase):
 
     def test_shorter_than_min_words_is_ignored(self):
         """Wiederholungen unterhalb der Mindestlänge werden nicht gemeldet."""
-        short = "haben wir versäumt oder ich habe auch"  # 7 Wörter
+        short = "wurde versehentlich ausgelassen und später sauber erneut"  # 7 Wörter
         self.assertEqual(find_repetitions(words(f"{short} {FILLER} {short}")), [])
         self.assertEqual(len(find_repetitions(words(f"{short} {FILLER} {short}"),
                                               min_words=7)), 1)
 
     def test_case_and_punctuation_are_ignored_but_original_text_is_shown(self):
         """Groß-/Kleinschreibung und Satzzeichen verhindern keinen Treffer."""
-        variant = "Diesen Schritt, haben wir versäumt. Oder ich habe auch versäumt!"
+        variant = "Dieser Verarbeitungsschritt wurde versehentlich ausgelassen; und später sauber erneut ausgeführt!"
         [finding] = find_repetitions(words(f"{PHRASE} {FILLER} {variant}"))
         self.assertEqual(finding["length_words"], 10)
-        self.assertTrue(finding["text"].startswith("Diesen Schritt haben"))
+        self.assertTrue(finding["text"].startswith("Dieser Verarbeitungsschritt wurde"))
 
     def test_three_occurrences_use_nearest_earlier_occurrence(self):
         """Bei mehrfachen Vorkommen zählt der Abstand zum nächstliegenden."""

@@ -139,9 +139,9 @@ unbegrenzte Ausschnitte; sie ist mit `--max-extended-seconds` einstellbar.
 `eval/loop_check.py` erkennt unmittelbare Decoder-Schleifen. Bei langen
 Aufnahmen tritt zusätzlich ein anderes Muster auf: Ein Satz oder Halbsatz
 erscheint einige Dutzend Wörter später erneut, oft eingebettet in leicht
-abweichenden Text (Beispiel #977 mit faster-whisper: „…in der Automatisierung
-dann später gut funktionieren wird“ dreimal, „diesen Schritt haben wir
-versäumt…“ mehrfach; die OpenAI-Gegenprobe enthielt keine dieser Stellen).
+abweichenden Text. In einem kontrollierten Vergleich enthielt eine lokale
+Transkription mehrere solcher Wiederholungen, die OpenAI-Gegenprobe dagegen
+keine.
 
 `analyze_repetitions.py` sucht dafür Wort-N-Gramme (Standard: 8 Wörter), die
 ohne Überlappung schon früher vorkamen, fasst zusammenhängende Treffer zu einer
@@ -158,8 +158,8 @@ Fundstelle zusammen und meldet je Fundstelle:
 ```
 
 Das Ergebnis ist ein Verdachtssignal, kein Fehlerurteil. Gesprochene
-Wiederholungen sind möglich (#976: „…das das Beste, weil Punkt, Punkt, Punkt …
-in einem anderen ist das das Beste, weil Punkt, Punkt, Punkt“). Der Prüfer
+Wiederholungen sind möglich; auch ein bewusst konstruiertes Gegenbeispiel mit
+einer absichtlich wiederholten Wortfolge wird daher gemeldet. Der Prüfer
 entfernt deshalb nie Text, verändert keine Datei und endet auch mit Fundstellen
 mit Exit-Code 0. Er ist nicht in die Inbox-Pipeline eingebunden.
 
